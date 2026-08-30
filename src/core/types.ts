@@ -45,7 +45,7 @@ export interface Table {
   tracks: TrackLine[]
 }
 
-export type Outcome = 'target_pocket' | 'wrong_pocket' | 'cushion'
+export type Outcome = 'target_pocket' | 'wrong_pocket' | 'cushion' | 'whiff'
 
 export interface SimEvent {
   kind: 'pot' | 'cushion' | 'rattle'
@@ -69,6 +69,8 @@ export type Band = 'perfect' | 'excellent' | 'good' | 'close' | 'miss'
 export interface ShotResult {
   potted: boolean
   outcome: Outcome
+  positionErrorMm: number // |U − G| — the headline "how close was I" (v2 free placement)
+  radialErrorMm: number // |U−O| − 2r: + = gap (not touching), − = overlapping
   thetaErrorDeg: number
   arcErrorMm: number
   contactErrorMm: number

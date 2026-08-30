@@ -19,7 +19,7 @@ import {
 } from './vec'
 
 // Bumps on ANY change to the generator or its constants — calibration retuning included (§4.10).
-export const GENERATOR_VERSION = 1
+export const GENERATOR_VERSION = 2
 
 // Pinned PRNG (§4.10): mulberry32, reference implementation verbatim.
 export function mulberry32(seed: number): () => number {
@@ -58,7 +58,7 @@ export const LEVELS: Record<LevelId, LevelParams> = {
     dOP: [300, 1400],
     pockets: [0, 1, 2, 3, 4, 5],
     pocketWeights: [1, 1, 1, 1, 1, 1],
-    pocketFrame: 'preferred',
+    pocketFrame: 'hard',
   },
   3: {
     cutDeg: [25, 80],
@@ -66,7 +66,7 @@ export const LEVELS: Record<LevelId, LevelParams> = {
     dOP: [400, 2000],
     pockets: [0, 1, 2, 3, 4, 5],
     pocketWeights: [1, 2, 1, 1, 2, 1], // biased to sides (§4.10)
-    pocketFrame: 'none',
+    pocketFrame: 'hard',
   },
 }
 
@@ -87,8 +87,7 @@ export interface RungParams {
   cushionClear: number
   dOPMin: number
   dCOMin: number
-  ndcMargin: number
-  pocketPreferred: boolean // Level-2 preference active
+  fitMargin: number // v2 zoom-fit safety margin (relaxed by rung 1)
 }
 
 // Deterministic widening ladder (§4.10). Rung 0 = base constraints.
@@ -97,8 +96,7 @@ export function rungParams(rung: number, level: LevelParams): RungParams {
     cushionClear: rung >= 3 ? 60 : O_CUSHION_CLEAR,
     dOPMin: rung >= 2 ? level.dOP[0] * 0.8 : level.dOP[0],
     dCOMin: rung >= 2 ? level.dCO[0] * 0.8 : level.dCO[0],
-    ndcMargin: rung >= 1 ? 1.0 : 0.9,
-    pocketPreferred: rung === 0 && level.pocketFrame === 'preferred',
+    fitMargin: rung >= 1 ? 1.04 : 1.12,
   }
 }
 
@@ -129,7 +127,7 @@ export function generateShot(seed: number, levelId: LevelId, table: Table): Shot
   for (const { rung, attempts } of schedule) {
     const p = rungParams(rung, level)
     for (let i = 0; i < attempts; i++) {
-      const shot = tryAttempt(rng, pick, pickPocket, p, rung, level, table)
+      const shot = tryAttempt(rng, pick, pickPocket, p, level, table)
       if (shot) {
         return { ...shot, seed, level: levelId, gv: GENERATOR_VERSION, widenRung: rung }
       }
@@ -143,7 +141,6 @@ function tryAttempt(
   pick: (lo: number, hi: number) => number,
   pickPocket: () => number,
   p: RungParams,
-  rung: number,
   level: LevelParams,
   table: Table,
 ): Omit<Shot, 'seed' | 'level' | 'gv' | 'widenRung'> | null {
@@ -195,22 +192,9 @@ function tryAttempt(
   const tTrue = thetaTrue(object, ghost)
   if (simulate(tTrue, object, pocketId, table).outcome !== 'target_pocket') return null
 
-  // (6) standing-frameability per the canonical rig (§4.10 check 6).
-  const arc = reachableArc(object, cue, table)
-  const wantPocket =
-    level.pocketFrame === 'hard' || (p.pocketPreferred && rung === 0) ? pocketId : null
-  const framed = standingFrameCheck(
-    {
-      cue,
-      object,
-      arcThetaC: arc.thetaC,
-      arcHalfWidth: arc.halfWidth,
-      includePocketId: wantPocket,
-      ndcMargin: p.ndcMargin,
-    },
-    table,
-  )
-  if (!framed) return null
+  // (6) v2 standing-frameability: pocket + placement region must zoom-fit from the
+  // canonical rig at the reference aspect — hard for every level.
+  if (!standingFrameCheck(cue, object, pocketId, table, p.fitMargin)) return null
 
   // difficulty_raw = (2.0/Bd)·(1 + φ/90°)·(1 + |C−G|/L), Bd = unclipped jaw window (§4.10).
   const jaw = jawWindow(object, pocketId, table)

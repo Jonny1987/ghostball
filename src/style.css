@@ -151,6 +151,21 @@ body {
   align-items: stretch;
 }
 
+.nudge-vertical {
+  position: absolute;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arrow-small {
+  width: 56px;
+  min-height: 56px;
+  font-size: 20px;
+}
+
 .arrow-btn {
   width: 64px;
   min-height: 64px;

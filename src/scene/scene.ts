@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { FullResult, Shot, Table, Vec2 } from '../core'
-import { ghostAt } from '../core'
 import type { AppState, Stance } from '../ui/store'
 import { Aids } from './aids'
 import { submitAnimation, type Task } from './animate'
@@ -9,11 +8,11 @@ import { assertCrossProjection } from './assertions'
 import { Balls } from './balls'
 import { buildScene } from './buildScene'
 import {
-  chipTangentScreenX,
   DampedCamera,
   type DownRig,
   downPose,
   pickDownRig,
+  screenDirsOnTable,
   standingPose,
 } from './cameras'
 import { PocketChevron } from './chevron'
@@ -27,7 +26,7 @@ import { BED_Y, MM_TO_M, toWorld } from './units'
 
 export interface SceneCallbacks {
   onDragPoint: (p: Vec2) => void
-  onSwipe: (deltaThetaRad: number) => void
+  onSwipe: (dxPx: number, dyPx: number) => void // down-view relative swipe, both axes
 }
 
 const STANCE_TRANSITION_S = 0.4
@@ -89,10 +88,10 @@ export class Scene3D {
       stance: () => this.state?.stance ?? 'standing',
       aiming: () => this.state?.phase === 'aiming',
       shot: () => (this.state as AppState).shot,
-      theta: () => (this.state as AppState).theta,
+      ghost: () => (this.state as AppState).ghost,
       camera: () => this.cam.camera,
       onDragPoint: cb.onDragPoint,
-      onSwipe: (dTheta) => cb.onSwipe(dTheta),
+      onSwipe: (dx, dy) => cb.onSwipe(dx, dy),
     })
 
     canvas.addEventListener('webglcontextlost', (ev) => {
@@ -118,7 +117,7 @@ export class Scene3D {
   // React to store changes; snap=true skips damping (first shot, resize, next shot).
   update(state: AppState, prev: AppState | null): void {
     const shotChanged = !prev || prev.shot !== state.shot
-    const thetaChanged = !prev || prev.theta !== state.theta
+    const ghostChanged = !prev || prev.ghost !== state.ghost
     const stanceChanged = !prev || prev.stance !== state.stance
     this.state = state
 
@@ -131,7 +130,7 @@ export class Scene3D {
     // during ANIMATING/RESULT the submit animation owns the object ball's transform —
     // sync must not teleport it back to O or un-hide a potted ball (§2.12)
     const objectLive = state.phase === 'animating' || state.phase === 'result'
-    this.balls.sync(state.shot, state.theta, showTruth, guessColored, !objectLive)
+    this.balls.sync(state.shot, state.ghost, showTruth, guessColored, !objectLive)
     this.aids.setTargetPocket(state.shot.pocketId)
 
     if (state.phase === 'aiming' && (shotChanged || (prev && prev.phase !== 'aiming'))) {
@@ -144,7 +143,7 @@ export class Scene3D {
       this.applyCamera(state, true)
     } else if (stanceChanged) {
       this.applyCamera(state, false, STANCE_TRANSITION_S)
-    } else if (thetaChanged && state.stance === 'down') {
+    } else if (ghostChanged && state.stance === 'down') {
       this.applyCamera(state, false, DOWN_FOLLOW_TAU_S)
     }
 
@@ -163,7 +162,7 @@ export class Scene3D {
 
   private placeCueStick(state: AppState): void {
     const r = this.table.cfg.ballRadiusMm
-    const u = ghostAt(state.theta, state.shot.object, r)
+    const u = state.ghost
     const cueW = toWorld(state.shot.cue, r)
     const uW = toWorld(u, r)
     const dir = uW.clone().sub(cueW).setY(0).normalize()
@@ -187,27 +186,29 @@ export class Scene3D {
     const pose =
       state.stance === 'standing'
         ? standingPose(state.shot, this.table, aspect)
-        : downPose(state.shot, state.theta, this.table, this.downRig)
+        : downPose(state.shot, state.ghost, this.table, this.downRig)
     if (snap) this.cam.snapTo(pose)
     else this.cam.moveTo(pose, tau)
     this.invalidate()
   }
 
-  nudgeTangentScreenX(theta: number): number {
-    if (!this.state) return 1
-    return chipTangentScreenX(this.cam.camera, this.state.shot, theta, this.table, this.cssW)
+  // Table-space unit vectors for screen-right/up at the ghost — drives the 4-way nudges
+  // and the down-view swipe mapping (v2).
+  screenDirs(): { right: Vec2; up: Vec2 } {
+    if (!this.state) return { right: { x: 1, y: 0 }, up: { x: 0, y: 1 } }
+    return screenDirsOnTable(this.cam.camera, this.state.ghost, this.table)
   }
 
   // Kinematic submit playback (M5 flow). onDone fires when the roll (or skip) completes.
   runSubmit(result: FullResult, reducedMotion: boolean, onDone: () => void): void {
     const ev = result.sim.event
     if (!ev || reducedMotion) {
-      if (this.state) this.aids.showResultLines(this.state.shot, this.state.theta, result)
+      if (this.state) this.aids.showResultLines(this.state.shot, this.state.ghost, result)
       onDone()
       return
     }
     const state = this.state as AppState
-    this.aids.showResultLines(state.shot, state.theta, result)
+    this.aids.showResultLines(state.shot, state.ghost, result)
     const r = this.table.cfg.ballRadiusMm
     const from = toWorld(state.shot.object, r)
     const to = toWorld(ev.point, r)
@@ -269,11 +270,11 @@ export class Scene3D {
         this.scene,
         this.cam.camera,
         this.state.shot,
-        this.state.theta,
+        this.state.ghost,
         this.table,
       )
       this.chevron.update(this.cam.camera, this.state.shot, this.table, this.cssW, this.cssH)
-      assertCrossProjection(this.balls.ghost, this.state.shot, this.state.theta, this.table)
+      assertCrossProjection(this.balls.ghost, this.state.ghost, this.table)
     }
 
     if (animating || this.dirty) {

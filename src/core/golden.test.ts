@@ -76,7 +76,10 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
     expect(U.x).toBeCloseTo(646.815, 2)
     expect(U.y).toBeCloseTo(432.78, 2)
 
-    const res = computeResult({ thetaUser, cue: C, object: O, targetPocketId: 0 }, T)
+    const res = computeResult(
+      { ghostPos: ghostAt(thetaUser, O, cfg.ballRadiusMm), cue: C, object: O, targetPocketId: 0 },
+      T,
+    )
     expect(Math.abs(res.thetaErrorDeg - 2.27)).toBeLessThanOrEqual(0.02)
     expect(Math.abs(res.arcErrorMm - 2.26)).toBeLessThanOrEqual(0.02)
     expect(Math.abs(res.contactErrorMm - 1.13)).toBeLessThanOrEqual(0.02)
@@ -293,7 +296,10 @@ describe('event-model tests added by the adversarial review', () => {
     const tTrue = thetaTrue(obj, G)
     const arc = reachableArc(obj, cue, T)
     expect(Math.abs(radToDeg(tTrue - arc.thetaC))).toBeLessThanOrEqual(1e-9)
-    const res = computeResult({ thetaUser: tTrue, cue, object: obj, targetPocketId: 1 }, T)
+    const res = computeResult(
+      { ghostPos: ghostAt(tTrue, obj, cfg.ballRadiusMm), cue, object: obj, targetPocketId: 1 },
+      T,
+    )
     expect(res.cutAngleTrueDeg).toBeCloseTo(0, 6)
     expect(res.contactFullness).toBeCloseTo(1, 6)
     expect(res.potted).toBe(true)

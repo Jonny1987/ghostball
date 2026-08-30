@@ -1,13 +1,4 @@
-import {
-  type FullResult,
-  ghostAt,
-  reachableArc,
-  type Shot,
-  type Table,
-  trueGhost,
-  unit,
-  type Vec2,
-} from '../core'
+import { type FullResult, type Shot, type Table, trueGhost, type Vec2 } from '../core'
 import type { AppState } from '../ui/store'
 
 // Canvas-2D top-down renderer of core state (PLAN.md §3): the interim main view at M1b,
@@ -179,27 +170,6 @@ export class TopDownView {
     const shot = state.shot
     const showTruth = state.phase === 'reveal' || state.phase === 'result' || state.peeking
 
-    // reachable arc on the constraint circle
-    if (state.phase === 'aiming') {
-      const arc = reachableArc(shot.object, shot.cue, table)
-      const [ox2, oy2] = this.toScreen(shot.object)
-      ctx.beginPath()
-      ctx.strokeStyle = COLORS.arc
-      ctx.lineWidth = Math.max(1.5, 4 * s)
-      ctx.setLineDash([6, 6])
-      // canvas arcs run clockwise in screen space = decreasing table angle; flip signs
-      ctx.arc(
-        ox2,
-        oy2,
-        2 * r * s,
-        -(arc.thetaC - arc.halfWidth),
-        -(arc.thetaC + arc.halfWidth),
-        true,
-      )
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
     // trajectory on result
     if (state.result && (state.phase === 'result' || state.phase === 'animating')) {
       const ev = state.result.sim.event
@@ -219,8 +189,8 @@ export class TopDownView {
     this.ball(shot.cue, r, COLORS.cue, false)
     this.ball(shot.object, r, COLORS.object, false)
 
-    // ghosts: user guess (amber on reveal, translucent while aiming), truth (cyan outline)
-    const userPos = ghostAt(state.theta, shot.object, r)
+    // ghosts: user guess (amber on reveal, white while aiming), truth (cyan outline)
+    const userPos = state.ghost
     if (showTruth) {
       const pk = table.pockets[shot.pocketId]
       if (pk) {
@@ -228,17 +198,18 @@ export class TopDownView {
         this.ball(truth, r, COLORS.ghostTrue, true)
       }
       this.ball(userPos, r, COLORS.ghostUser, true)
+      // cue path to the placed ghost (red when the aim whiffs entirely)
+      const whiff = state.result?.outcome === 'whiff'
+      ctx.beginPath()
+      ctx.strokeStyle = whiff ? COLORS.cushionHit : 'rgba(255,183,77,0.7)'
+      ctx.lineWidth = Math.max(1, 3 * s)
+      ctx.setLineDash([6, 6])
+      ctx.moveTo(...this.toScreen(shot.cue))
+      ctx.lineTo(...this.toScreen(userPos))
+      ctx.stroke()
+      ctx.setLineDash([])
     } else {
       this.ball(userPos, r, COLORS.ghost, true)
-      // direction hint: departure line from O opposite the ghost
-      const d = unit(state.theta)
-      const [ox3, oy3] = this.toScreen(shot.object)
-      ctx.beginPath()
-      ctx.strokeStyle = 'rgba(245,242,233,0.25)'
-      ctx.lineWidth = Math.max(1, 3 * s)
-      ctx.moveTo(ox3, oy3)
-      ctx.lineTo(ox3 - d.x * 260 * s, oy3 + d.y * 260 * s)
-      ctx.stroke()
     }
   }
 

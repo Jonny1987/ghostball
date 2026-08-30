@@ -1,4 +1,4 @@
-import { COARSE_STEP, FINE_STEP, fullnessBand, radToDeg } from '../core'
+import { COARSE_STEP_MM, FINE_STEP_MM, fullnessBand, radToDeg } from '../core'
 import type { Store } from './store'
 
 // HUD per PLAN.md §5: bottom bar ◀ SUBMIT ▶, contact chip, hold-to-peek, top bar.
@@ -9,8 +9,10 @@ const HOLD_DELAY_MS = 350
 const REPEAT_MS = 1000 / 15
 const ESCALATE_MS = 1200
 
+export type NudgeDir = 'left' | 'right' | 'up' | 'down'
+
 export interface HudCallbacks {
-  onNudge: (arrow: 'left' | 'right', step: number) => boolean // returns atLimit
+  onNudge: (dir: NudgeDir, stepMm: number) => boolean // returns atLimit
   onSubmit: () => void
   onNext: () => void
   onRetry: () => void
@@ -27,6 +29,8 @@ export interface HudElements {
   stanceControl: HTMLElement
   arrowLeft: HTMLButtonElement
   arrowRight: HTMLButtonElement
+  arrowUp: HTMLButtonElement
+  arrowDown: HTMLButtonElement
   submit: HTMLButtonElement
   peek: HTMLButtonElement
 }
@@ -69,6 +73,14 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   peek.setAttribute('aria-label', 'hold to reveal the true ghost ball (marks the attempt assisted)')
   chipRow.append(chip, peek)
 
+  // vertical nudge pair (screen up/down), floating above the bottom bar's right side (v2)
+  const vertical = el('div', 'nudge-vertical')
+  const arrowUp = el('button', 'arrow-btn arrow-small', '▲')
+  arrowUp.setAttribute('aria-label', 'nudge ghost ball up')
+  const arrowDown = el('button', 'arrow-btn arrow-small', '▼')
+  arrowDown.setAttribute('aria-label', 'nudge ghost ball down')
+  vertical.append(arrowUp, arrowDown)
+
   // bottom bar
   const bottom = el('div', 'hud-bottom')
   const arrowLeft = el('button', 'arrow-btn', '◀')
@@ -78,11 +90,13 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   arrowRight.setAttribute('aria-label', 'nudge ghost ball right')
   bottom.append(arrowLeft, submit, arrowRight)
 
-  root.append(top, stanceControl, chipRow, bottom)
+  root.append(top, stanceControl, chipRow, vertical, bottom)
   container.append(root)
 
   bindArrow(arrowLeft, 'left', store, cb)
   bindArrow(arrowRight, 'right', store, cb)
+  bindArrow(arrowUp, 'up', store, cb)
+  bindArrow(arrowDown, 'down', store, cb)
   submit.addEventListener('click', () => {
     const phase = store.get().phase
     if (phase === 'aiming') cb.onSubmit()
@@ -115,11 +129,17 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   // keyboard: ←/→ fine, Shift+←/→ coarse, Enter submit/next, S stance, N next, R retry (§5)
   window.addEventListener('keydown', (ev) => {
     const state = store.get()
-    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+    const keyDirs: Record<string, NudgeDir> = {
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+    }
+    const keyDir = keyDirs[ev.key]
+    if (keyDir) {
       ev.preventDefault()
       if (state.phase !== 'aiming') return
-      const arrow = ev.key === 'ArrowLeft' ? 'left' : 'right'
-      cb.onNudge(arrow, ev.shiftKey ? COARSE_STEP : FINE_STEP)
+      cb.onNudge(keyDir, ev.shiftKey ? COARSE_STEP_MM : FINE_STEP_MM)
     } else if (ev.key === 'Enter') {
       if (ev.repeat) return // key auto-repeat must not chain next-shot → instant submit
       if (ev.target instanceof HTMLButtonElement) return // native click will handle it
@@ -160,10 +180,25 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
     const aiming = state.phase === 'aiming'
     arrowLeft.disabled = !aiming
     arrowRight.disabled = !aiming
+    arrowUp.disabled = !aiming
+    arrowDown.disabled = !aiming
+    vertical.style.visibility = aiming ? 'visible' : 'hidden'
     peek.style.visibility = aiming ? 'visible' : 'hidden'
   })
 
-  return { root, chip, streak, levelPill, stanceControl, arrowLeft, arrowRight, submit, peek }
+  return {
+    root,
+    chip,
+    streak,
+    levelPill,
+    stanceControl,
+    arrowLeft,
+    arrowRight,
+    arrowUp,
+    arrowDown,
+    submit,
+    peek,
+  }
 }
 
 function currentStreak(store: Store): number {
@@ -171,18 +206,30 @@ function currentStreak(store: Store): number {
   return s.stats[String(s.level)]?.streakCurrent ?? 0
 }
 
-// Contact chip: fullness % · band · cut° (§4.9). Degrees carry thin-cut feedback (§2.6).
-export function updateChip(chip: HTMLElement, fullness: number, cutDeg: number): void {
+// Contact chip (v2): fullness % · band · cut° from the EFFECTIVE contact, plus a
+// gap/overlap segment when the placed ghost isn't touching the object ball. A null
+// fullness means the aim line misses the ball entirely.
+export function updateChip(
+  chip: HTMLElement,
+  fullness: number | null,
+  cutDeg: number | null,
+  radialMm: number,
+): void {
+  const touch =
+    Math.abs(radialMm) < 0.3
+      ? ''
+      : radialMm > 0
+        ? ` · gap ${radialMm.toFixed(1)} mm`
+        : ` · overlap ${(-radialMm).toFixed(1)} mm`
+  if (fullness === null || cutDeg === null) {
+    chip.textContent = `no contact — aim misses the ball${touch}`
+    return
+  }
   const pct = (fullness * 100).toFixed(1)
-  chip.textContent = `${pct} % · ${fullnessBand(fullness)} · ${cutDeg.toFixed(1)}°`
+  chip.textContent = `${pct} % · ${fullnessBand(fullness)} · ${cutDeg.toFixed(1)}°${touch}`
 }
 
-function bindArrow(
-  btn: HTMLButtonElement,
-  arrow: 'left' | 'right',
-  store: Store,
-  cb: HudCallbacks,
-): void {
+function bindArrow(btn: HTMLButtonElement, dir: NudgeDir, store: Store, cb: HudCallbacks): void {
   let holdTimer: ReturnType<typeof setTimeout> | null = null
   let repeatTimer: ReturnType<typeof setInterval> | null = null
   let heldSince = 0
@@ -193,8 +240,8 @@ function bindArrow(
       return
     }
     const elapsed = heldSince > 0 ? performance.now() - heldSince : 0
-    const step = elapsed >= ESCALATE_MS ? COARSE_STEP : FINE_STEP
-    const atLimit = cb.onNudge(arrow, step)
+    const step = elapsed >= ESCALATE_MS ? COARSE_STEP_MM : FINE_STEP_MM
+    const atLimit = cb.onNudge(dir, step)
     // per-step visual tick; limit bump gets a stronger flash (§2.6)
     btn.classList.remove('tick', 'bump')
     void btn.offsetWidth // restart the CSS animation
@@ -237,9 +284,9 @@ export function formatWindowLine(plusDeg: number, minusDeg: number, errDeg: numb
   return `the pocket forgave ±${w.toFixed(1)}° from here; you were ${errDeg.toFixed(1)}° off`
 }
 
-export function formatErrorLine(contactErrorMm: number, overcut: boolean): string {
-  const dir = overcut ? 'too thin' : 'too full'
-  return `${contactErrorMm.toFixed(1)} mm ${dir}`
+export function formatErrorLine(positionErrorMm: number, overcut: boolean): string {
+  const dir = overcut ? 'aimed too thin' : 'aimed too full'
+  return `${positionErrorMm.toFixed(1)} mm from perfect — ${dir}`
 }
 
 export function degLabel(rad: number): string {

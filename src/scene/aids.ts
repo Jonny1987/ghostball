@@ -1,6 +1,5 @@
 import * as THREE from 'three'
-import type { FullResult, Shot, Table } from '../core'
-import { ghostAt } from '../core'
+import type { FullResult, Shot, Table, Vec2 } from '../core'
 import { BED_Y, MM_TO_M, toWorld } from './units'
 
 // Post-submit aiming aids (PLAN.md §3 aids.ts): cue path C→U, object path O→event,
@@ -52,9 +51,23 @@ export class Aids {
     this.pocketRing.position.set(pk.m.x * MM_TO_M, BED_Y + 0.0015, pk.m.y * MM_TO_M)
   }
 
-  showResultLines(shot: Shot, theta: number, result: FullResult): void {
+  showResultLines(shot: Shot, u: Vec2, result: FullResult): void {
     const r = this.table.cfg.ballRadiusMm
-    const u = ghostAt(theta, shot.object, r)
+    if (result.outcome === 'whiff') {
+      // show the aim ray sailing past the object ball
+      const dx = u.x - shot.cue.x
+      const dy = u.y - shot.cue.y
+      const len = Math.hypot(dx, dy) || 1
+      const past = { x: u.x + (dx / len) * 500, y: u.y + (dy / len) * 500 }
+      const mat = this.cueLine.material as THREE.LineBasicMaterial
+      mat.color.setHex(0xef5350)
+      this.cueLine.geometry.setFromPoints([toWorld(shot.cue, r), toWorld(past, r)])
+      this.cueLine.visible = true
+      this.objectLine.visible = false
+      return
+    }
+    const cueMat = this.cueLine.material as THREE.LineBasicMaterial
+    cueMat.color.setHex(0xffb74d)
     this.cueLine.geometry.setFromPoints([toWorld(shot.cue, r), toWorld(u, r)])
     this.cueLine.visible = true
     const ev = result.sim.event

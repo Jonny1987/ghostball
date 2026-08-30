@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ghostAt } from './constraint'
 import { generateShot } from './generate'
 import { trueGhost } from './ghost'
 import { computeResult, fullnessBand, gradeBand, jawWindow } from './score'
@@ -47,7 +48,7 @@ describe('result payload invariants', () => {
         const s = generateShot(seed, level, T)
         const res = computeResult(
           {
-            thetaUser: s.thetaTrue + degToRad(1.7),
+            ghostPos: ghostAt(s.thetaTrue + degToRad(1.7), s.object, T.cfg.ballRadiusMm),
             cue: s.cue,
             object: s.object,
             targetPocketId: s.pocketId,
@@ -67,7 +68,12 @@ describe('result payload invariants', () => {
       for (let seed = 100; seed < 150; seed++) {
         const s = generateShot(seed, level, T)
         const base = computeResult(
-          { thetaUser: s.thetaTrue, cue: s.cue, object: s.object, targetPocketId: s.pocketId },
+          {
+            ghostPos: ghostAt(s.thetaTrue, s.object, T.cfg.ballRadiusMm),
+            cue: s.cue,
+            object: s.object,
+            targetPocketId: s.pocketId,
+          },
           T,
         )
         expect(base.potted).toBe(true)
@@ -77,7 +83,11 @@ describe('result payload invariants', () => {
           if (sideDeg < 0.05) continue
           const probe = computeResult(
             {
-              thetaUser: s.thetaTrue + sign * degToRad(sideDeg - 0.03),
+              ghostPos: ghostAt(
+                s.thetaTrue + sign * degToRad(sideDeg - 0.03),
+                s.object,
+                T.cfg.ballRadiusMm,
+              ),
               cue: s.cue,
               object: s.object,
               targetPocketId: s.pocketId,
@@ -99,11 +109,21 @@ describe('result payload invariants', () => {
     const tTrue = Math.atan2(G.y - O.y, G.x - O.x)
     // Rotating the ghost toward a bigger cut increases φ_user → overcut ("too thin").
     const over = computeResult(
-      { thetaUser: tTrue + degToRad(2), cue: C, object: O, targetPocketId: 0 },
+      {
+        ghostPos: ghostAt(tTrue + degToRad(2), O, T.cfg.ballRadiusMm),
+        cue: C,
+        object: O,
+        targetPocketId: 0,
+      },
       T,
     )
     const under = computeResult(
-      { thetaUser: tTrue - degToRad(2), cue: C, object: O, targetPocketId: 0 },
+      {
+        ghostPos: ghostAt(tTrue - degToRad(2), O, T.cfg.ballRadiusMm),
+        cue: C,
+        object: O,
+        targetPocketId: 0,
+      },
       T,
     )
     expect(over.cutAngleUserDeg).toBeGreaterThan(over.cutAngleTrueDeg)
@@ -120,7 +140,12 @@ describe('result payload invariants', () => {
     const G = trueGhost(O, pk, T.cfg)
     const tTrue = Math.atan2(G.y - O.y, G.x - O.x)
     const res = computeResult(
-      { thetaUser: tTrue + degToRad(8), cue: C, object: O, targetPocketId: 0 },
+      {
+        ghostPos: ghostAt(tTrue + degToRad(8), O, T.cfg.ballRadiusMm),
+        cue: C,
+        object: O,
+        targetPocketId: 0,
+      },
       T,
     )
     expect(res.potted).toBe(false)
@@ -134,7 +159,12 @@ describe('result payload invariants', () => {
     for (let seed = 200; seed < 220; seed++) {
       const s = generateShot(seed, 2, T)
       const res = computeResult(
-        { thetaUser: s.thetaTrue, cue: s.cue, object: s.object, targetPocketId: s.pocketId },
+        {
+          ghostPos: ghostAt(s.thetaTrue, s.object, T.cfg.ballRadiusMm),
+          cue: s.cue,
+          object: s.object,
+          targetPocketId: s.pocketId,
+        },
         T,
       )
       expect(res.allowedWindowDeg).toBeGreaterThan(0)

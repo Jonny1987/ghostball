@@ -1,6 +1,6 @@
 import { ghostAt } from './constraint'
 import { cutAngle, trueGhost } from './ghost'
-import { missMetrics, simulate } from './simulate'
+import { effectiveContact, missMetrics, simulate } from './simulate'
 import type { Band, ShotResult, SimResult, Table } from './types'
 import { angleBetween, cross, degToRad, radToDeg, sub, type Vec2, wrapToPi } from './vec'
 
@@ -24,12 +24,14 @@ export function fullnessBand(fullness: number): FullnessBand {
   return 'very thin'
 }
 
-// Grade bands, canonical degrees (§2.7).
-export function gradeBand(thetaErrorDeg: number): Band {
-  if (thetaErrorDeg <= 0.5) return 'perfect'
-  if (thetaErrorDeg <= 1.5) return 'excellent'
-  if (thetaErrorDeg <= 3) return 'good'
-  if (thetaErrorDeg <= 6) return 'close'
+// Grade bands — v2: canonical in POSITION mm (|U − G|). The thresholds match the old
+// degree bands numerically (1° of arc at 2r = 0.998 mm), so on-circle placements grade
+// identically to v1.
+export function gradeBand(positionErrorMm: number): Band {
+  if (positionErrorMm <= 0.5) return 'perfect'
+  if (positionErrorMm <= 1.5) return 'excellent'
+  if (positionErrorMm <= 3) return 'good'
+  if (positionErrorMm <= 6) return 'close'
   return 'miss'
 }
 
@@ -108,7 +110,7 @@ export function allowedWindow(
 }
 
 export interface ScoreInput {
-  thetaUser: number
+  ghostPos: Vec2 // v2: the guess is a full 2D position
   cue: Vec2
   object: Vec2
   targetPocketId: number
@@ -117,11 +119,14 @@ export interface ScoreInput {
 export interface FullResult extends ShotResult {
   sim: SimResult // event detail for the view layer (animation endpoint, rattle info)
   thetaTrue: number
+  thetaEff: number | null // angle of the ACTUAL contact resolved from the aim line (null = whiff)
 }
 
-// Assemble the complete §4.9 result payload for a submitted guess.
+// Assemble the complete result payload for a submitted guess (v2 free placement).
+// The pot verdict comes from the EFFECTIVE contact: the cue ball is driven along the
+// C→U aim line and physics resolves where it first touches O (docs/decisions.md).
 export function computeResult(input: ScoreInput, table: Table): FullResult {
-  const { thetaUser, cue, object, targetPocketId } = input
+  const { ghostPos, cue, object, targetPocketId } = input
   const { cfg } = table
   const r = cfg.ballRadiusMm
   const pk = table.pockets[targetPocketId]
@@ -129,15 +134,28 @@ export function computeResult(input: ScoreInput, table: Table): FullResult {
 
   const ghost = trueGhost(object, pk, cfg)
   const tTrue = Math.atan2(ghost.y - object.y, ghost.x - object.x)
-  const beta = Math.abs(wrapToPi(thetaUser - tTrue))
+
+  const positionErrorMm = Math.hypot(ghostPos.x - ghost.x, ghostPos.y - ghost.y)
+  const centerDist = Math.hypot(ghostPos.x - object.x, ghostPos.y - object.y)
+  const radialErrorMm = centerDist - 2 * r
+  const thetaPlaced =
+    centerDist > 1e-9 ? Math.atan2(ghostPos.y - object.y, ghostPos.x - object.x) : tTrue
+  const beta = Math.abs(wrapToPi(thetaPlaced - tTrue))
   const betaDeg = radToDeg(beta)
 
-  const userGhost = ghostAt(thetaUser, object, r)
   const phiTrue = cutAngle(cue, ghost, object)
-  const phiUser = cutAngle(cue, userGhost, object)
+  const eff = effectiveContact(cue, ghostPos, object, r)
+  // physical thickness comes from the actual contact; fall back to the placed angle
+  const phiUser = eff
+    ? cutAngle(cue, ghostAt(eff.theta, object, r), object)
+    : cutAngle(cue, ghostPos, object)
 
-  const sim = simulate(thetaUser, object, targetPocketId, table)
-  const miss = missMetrics(thetaUser, object, targetPocketId, table)
+  const sim: SimResult = eff
+    ? simulate(eff.theta, object, targetPocketId, table)
+    : { outcome: 'whiff', potted: false, event: null, pocketId: null, detail: null }
+  const miss = eff
+    ? missMetrics(eff.theta, object, targetPocketId, table)
+    : { missMm: null, mouthOffsetMm: null, wrongDirection: false }
   const window = allowedWindow(tTrue, object, targetPocketId, table)
 
   const potEvent = sim.outcome === 'target_pocket' ? sim.event : null
@@ -145,6 +163,8 @@ export function computeResult(input: ScoreInput, table: Table): FullResult {
   return {
     potted: sim.potted,
     outcome: sim.outcome,
+    positionErrorMm,
+    radialErrorMm,
     thetaErrorDeg: betaDeg,
     arcErrorMm: 2 * r * beta,
     contactErrorMm: r * beta,
@@ -164,8 +184,9 @@ export function computeResult(input: ScoreInput, table: Table): FullResult {
     wrongDirection: miss.wrongDirection,
     cushionHit: sim.outcome === 'cushion' && sim.event ? sim.event.point : null,
     wrongPocketId: sim.outcome === 'wrong_pocket' ? sim.pocketId : null,
-    band: gradeBand(betaDeg),
+    band: gradeBand(positionErrorMm),
     sim,
     thetaTrue: tTrue,
+    thetaEff: eff ? eff.theta : null,
   }
 }

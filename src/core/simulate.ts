@@ -126,3 +126,41 @@ export function missMetrics(
   if (t < 0) return { missMm: null, mouthOffsetMm: null, wrongDirection: true }
   return { missMm: Math.abs(u) - pk.wEff, mouthOffsetMm: u, wrongDirection: false }
 }
+
+export interface EffectiveContact {
+  theta: number // angle of the actual cue-ball centre around O at first contact
+  contactCenter: Vec2
+  tMm: number // distance travelled from C
+}
+
+// V2 physics (docs/decisions.md): the placed ghost expresses an AIM — the cue ball is
+// driven from C along the ray through the placed position U and keeps rolling. The actual
+// contact is the first point on that ray whose centre is 2r from O. An overlapping or
+// short ghost therefore contacts at a slightly different angle than placed; a ghost far
+// enough off line means the cue ball never touches the object ball at all (a whiff).
+export function effectiveContact(
+  cue: Vec2,
+  ghostPos: Vec2,
+  object: Vec2,
+  ballRadiusMm: number,
+): EffectiveContact | null {
+  const aim = sub(ghostPos, cue)
+  const aimLen = Math.hypot(aim.x, aim.y)
+  if (aimLen < EPS) return null
+  const dir = { x: aim.x / aimLen, y: aim.y / aimLen }
+  const oc = sub(object, cue)
+  const proj = dot(oc, dir)
+  const r2 = 2 * ballRadiusMm
+  if (proj <= 0) return null // object ball is behind the aim direction
+  const perpSq = dot(oc, oc) - proj * proj
+  if (perpSq > r2 * r2) return null // aim line passes more than 2r from O — clean whiff
+  const h = Math.sqrt(Math.max(0, r2 * r2 - perpSq))
+  const t = proj - h // first intersection (callers guarantee C starts outside 2r of O)
+  if (t <= EPS) return null
+  const contactCenter = add(cue, scale(dir, t))
+  return {
+    theta: Math.atan2(contactCenter.y - object.y, contactCenter.x - object.x),
+    contactCenter,
+    tMm: t,
+  }
+}

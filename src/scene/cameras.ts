@@ -1,17 +1,5 @@
 import * as THREE from 'three'
-import {
-  clamp,
-  degToRad,
-  ghostAt,
-  normalize,
-  radToDeg,
-  reachableArc,
-  type Shot,
-  scale,
-  sub,
-  type Table,
-  unit,
-} from '../core'
+import { fitStandingZoom, normalize, type Shot, scale, sub, type Table, type Vec2 } from '../core'
 import { BED_Y, MM_TO_M, toWorld } from './units'
 
 // Camera rigs (PLAN.md §2.11). All constants live here. The standing rig starts from the
@@ -31,75 +19,32 @@ export const DOWN_RIGS: Record<string, DownRig> = {
   d3: { heightM: 0.22, behindM: 0.9, fovDeg: 48 },
 }
 
-export const STANDING = {
-  eyeHeightM: 1.62,
-  behindM: 1.3,
-  hFovDeg: 55, // target horizontal; vertical derived from aspect, clamped below
-  vFovClamp: [50, 70] as [number, number],
-  dollyStepM: 0.1,
-  dollyMaxM: 1.2,
-  ndcFit: 0.95,
-}
-
 export interface CameraPose {
   eye: THREE.Vector3
   target: THREE.Vector3
   fovDeg: number
 }
 
-function verticalFov(hFovDeg: number, aspect: number): number {
-  const v = 2 * Math.atan(Math.tan(degToRad(hFovDeg / 2)) / aspect)
-  return clamp(radToDeg(v), STANDING.vFovClamp[0], STANDING.vFovClamp[1])
-}
-
-// Points the standing view must frame: C, O, the reachable arc, and the target pocket
-// mouth when the shot was generated pocket-frameable (best effort at runtime).
-function requiredPoints(shot: Shot, table: Table): THREE.Vector3[] {
-  const r = table.cfg.ballRadiusMm
-  const pts: THREE.Vector3[] = [toWorld(shot.cue, r), toWorld(shot.object, r)]
-  const arc = reachableArc(shot.object, shot.cue, table)
-  const n = Math.max(2, Math.ceil((2 * arc.halfWidth) / degToRad(15)))
-  for (let i = 0; i <= n; i++) {
-    const theta = arc.thetaC - arc.halfWidth + (2 * arc.halfWidth * i) / n
-    pts.push(toWorld(ghostAt(theta, shot.object, r), r))
-  }
-  return pts
-}
-
+// V2 zoom framing: the pose comes from core's fitStandingZoom — the same math the
+// generator's frameability check uses, run at the actual viewport aspect. Maximum zoom
+// with the pocket + the whole placement region visible (docs/decisions.md).
 export function standingPose(shot: Shot, table: Table, aspect: number): CameraPose {
-  const dir = normalize(sub(shot.object, shot.cue))
-  const fovDeg = verticalFov(STANDING.hFovDeg, aspect)
-  const pts = requiredPoints(shot, table)
-
-  const cam = new THREE.PerspectiveCamera(fovDeg, aspect, 0.05, 30)
-  const target = toWorld(shot.object, table.cfg.ballRadiusMm)
-
-  for (let extra = 0; ; extra += STANDING.dollyStepM) {
-    const back = STANDING.behindM + extra
-    const eye = new THREE.Vector3(
-      shot.cue.x * MM_TO_M - dir.x * back,
-      BED_Y + STANDING.eyeHeightM,
-      shot.cue.y * MM_TO_M - dir.y * back,
-    )
-    cam.position.copy(eye)
-    cam.lookAt(target)
-    cam.updateMatrixWorld()
-    cam.updateProjectionMatrix()
-    const fits = pts.every((p) => {
-      const ndc = p.clone().project(cam)
-      return ndc.z < 1 && Math.abs(ndc.x) <= STANDING.ndcFit && Math.abs(ndc.y) <= STANDING.ndcFit
-    })
-    if (fits || extra >= STANDING.dollyMaxM) {
-      return { eye, target: target.clone(), fovDeg }
-    }
-  }
+  const fit = fitStandingZoom(shot.cue, shot.object, shot.pocketId, table, aspect)
+  const eye = new THREE.Vector3(
+    fit.eye.x * MM_TO_M,
+    BED_Y + fit.eye.z * MM_TO_M,
+    fit.eye.y * MM_TO_M,
+  )
+  const target = eye
+    .clone()
+    .add(new THREE.Vector3(fit.look.x, fit.look.z, fit.look.y).multiplyScalar(2))
+  return { eye, target, fovDeg: fit.vFovDeg }
 }
 
 // Down-on-the-shot: eye behind C on the C→U line at rig height, looking at the ghost —
 // the camera re-sights along the aim as the guess changes (§5).
-export function downPose(shot: Shot, theta: number, table: Table, rig: DownRig): CameraPose {
+export function downPose(shot: Shot, u: Vec2, table: Table, rig: DownRig): CameraPose {
   const r = table.cfg.ballRadiusMm
-  const u = ghostAt(theta, shot.object, r)
   const aim = normalize(sub(u, shot.cue))
   const back = scale(aim, -rig.behindM / MM_TO_M)
   const eye = new THREE.Vector3(
@@ -182,20 +127,29 @@ export function pickDownRig(): DownRig {
   return rig ?? (DOWN_RIGS.d3 as DownRig)
 }
 
-export function chipTangentScreenX(
+// Table-space unit vectors for "screen right" and "screen up" at the ghost's position —
+// resolves the 4-way nudge arrows and the down-view swipe into table mm (v2 2D nudges).
+export function screenDirsOnTable(
   camera: THREE.PerspectiveCamera,
-  shot: Shot,
-  theta: number,
+  ghostPos: Vec2,
   table: Table,
-  widthPx: number,
-): number {
-  // screen-x movement of a small +θ step, for arrow sign resolution (§4.7)
+): { right: Vec2; up: Vec2 } {
   const r = table.cfg.ballRadiusMm
-  const a = toWorld(ghostAt(theta, shot.object, r), r).project(camera)
-  const b = toWorld(ghostAt(theta + degToRad(0.5), shot.object, r), r).project(camera)
-  return ((b.x - a.x) * widthPx) / 2
-}
-
-export function thetaTangentHint(theta: number): { x: number; y: number } {
-  return unit(theta)
+  const planeY = BED_Y + r * MM_TO_M
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY)
+  const origin = toWorld(ghostPos, r)
+  const ndc = origin.clone().project(camera)
+  const raycaster = new THREE.Raycaster()
+  const hit = new THREE.Vector3()
+  const castDelta = (dx: number, dy: number): Vec2 | null => {
+    raycaster.setFromCamera(new THREE.Vector2(ndc.x + dx, ndc.y + dy), camera)
+    const p = raycaster.ray.intersectPlane(plane, hit)
+    if (!p) return null
+    const v = { x: (p.x - origin.x) / MM_TO_M, y: (p.z - origin.z) / MM_TO_M }
+    const len = Math.hypot(v.x, v.y)
+    return len > 1e-9 ? { x: v.x / len, y: v.y / len } : null
+  }
+  const right = castDelta(0.05, 0) ?? { x: 1, y: 0 }
+  const up = castDelta(0, 0.05) ?? { x: 0, y: 1 }
+  return { right, up }
 }

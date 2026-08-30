@@ -91,3 +91,59 @@ export function nudge(
 
 export const FINE_STEP = degToRad(0.25)
 export const COARSE_STEP = degToRad(1.0)
+
+// ---------------------------------------------------------------------------
+// V2 free placement (design change 2026-08-30, docs/decisions.md): the ghost is no
+// longer constrained to the touching circle. The guess is a full 2D position — it may
+// overlap the object ball or sit short of it (judging the touching distance is part of
+// the skill). Placement is bounded to a region around O so a wrong guess stays in frame.
+
+// Max ghost-centre distance from O: touching (2r) plus one full ball diameter of gap.
+export const MAX_CENTER_DIST_FACTOR = 2 // × 2r
+export function maxCenterDistMm(ballRadiusMm: number): number {
+  return MAX_CENTER_DIST_FACTOR * 2 * ballRadiusMm
+}
+
+// Radius of the region the camera must keep fully visible around O: the whole placement
+// disc plus the ball itself plus a slight margin (§ zoom framing).
+export function frameRadiusMm(ballRadiusMm: number): number {
+  return maxCenterDistMm(ballRadiusMm) + ballRadiusMm + 15
+}
+
+// Clamp a desired ghost-centre position: radially to the placement disc around O, then
+// to the table bounds. Overlap with O (any distance ≥ 0) is allowed.
+export function clampPlacement(p: Vec2, object: Vec2, table: Table): Vec2 {
+  const { cfg } = table
+  const r = cfg.ballRadiusMm
+  const maxDist = maxCenterDistMm(r)
+  let x = p.x
+  let y = p.y
+  const dx = x - object.x
+  const dy = y - object.y
+  const d = Math.hypot(dx, dy)
+  if (d > maxDist) {
+    x = object.x + (dx / d) * maxDist
+    y = object.y + (dy / d) * maxDist
+  }
+  x = clamp(x, r, cfg.tableLengthMm - r)
+  y = clamp(y, r, cfg.tableWidthMm - r)
+  return { x, y }
+}
+
+export interface NudgePosResult {
+  pos: Vec2
+  atLimit: boolean
+}
+
+// 2D nudge by a table-space delta (screen-aligned directions resolved by the view layer).
+export function nudgePos(pos: Vec2, delta: Vec2, object: Vec2, table: Table): NudgePosResult {
+  const target = { x: pos.x + delta.x, y: pos.y + delta.y }
+  const clamped = clampPlacement(target, object, table)
+  const moved = Math.hypot(clamped.x - pos.x, clamped.y - pos.y)
+  const want = Math.hypot(delta.x, delta.y)
+  return { pos: clamped, atLimit: moved < want * 0.5 }
+}
+
+// mm-based nudge steps (the "Perfect" band is ±0.5 mm; 1° of the old arc ≈ 1 mm).
+export const FINE_STEP_MM = 0.25
+export const COARSE_STEP_MM = 1.0

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { degToRad, ghostAt, type Shot, type Table, type Vec2 } from '../core'
+import type { Shot, Table, Vec2 } from '../core'
 import { BED_Y, MM_TO_M, toCore, toWorld } from './units'
 
 // Pointer input (PLAN.md §2.4/§5). Standing: absolute drag — the grab captures the
@@ -12,7 +12,6 @@ import { BED_Y, MM_TO_M, toCore, toWorld } from './units'
 export const FEEL = {
   liftOffsetPx: 80,
   grabRadiusPx: 48,
-  swipeDegPerPx: 0.08,
   liftRampMs: 250,
 }
 
@@ -20,10 +19,10 @@ export interface InputContext {
   stance: () => 'standing' | 'down'
   aiming: () => boolean
   shot: () => Shot
-  theta: () => number
+  ghost: () => Vec2
   camera: () => THREE.PerspectiveCamera
-  onDragPoint: (p: Vec2) => void // standing: table point to project onto the arc
-  onSwipe: (deltaThetaRad: number) => void // down: relative
+  onDragPoint: (p: Vec2) => void // standing: absolute table point (clamped by the app)
+  onSwipe: (dxPx: number, dyPx: number) => void // down: relative 2D swipe
 }
 
 export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputContext): void {
@@ -35,6 +34,7 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
   let activePointer: number | null = null
   let dragging = false
   let lastX = 0
+  let lastY = 0
   let grabOffsetX = 0
   let grabOffsetY = 0
   let liftTarget = 0
@@ -42,9 +42,7 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
 
   const ghostScreenPx = (): { x: number; y: number } | null => {
     const rect = canvas.getBoundingClientRect()
-    const shot = ctx.shot()
-    const u = ghostAt(ctx.theta(), shot.object, table.cfg.ballRadiusMm)
-    const ndc = toWorld(u, table.cfg.ballRadiusMm).project(ctx.camera())
+    const ndc = toWorld(ctx.ghost(), table.cfg.ballRadiusMm).project(ctx.camera())
     if (ndc.z >= 1) return null
     return { x: ((ndc.x + 1) / 2) * rect.width, y: ((1 - ndc.y) / 2) * rect.height }
   }
@@ -76,6 +74,7 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
     activePointer = ev.pointerId
     canvas.setPointerCapture(ev.pointerId)
     lastX = ev.clientX
+    lastY = ev.clientY
 
     if (ctx.stance() === 'standing') {
       const gp = ghostScreenPx()
@@ -103,8 +102,10 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
       if (p) ctx.onDragPoint(p)
     } else {
       const dx = ev.clientX - lastX
+      const dy = ev.clientY - lastY
       lastX = ev.clientX
-      if (dx !== 0) ctx.onSwipe(degToRad(FEEL.swipeDegPerPx) * dx)
+      lastY = ev.clientY
+      if (dx !== 0 || dy !== 0) ctx.onSwipe(dx, dy)
     }
   })
 

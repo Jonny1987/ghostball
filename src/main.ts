@@ -1,35 +1,37 @@
 import {
   clamp,
-  clampToReachable,
+  clampPlacement,
   computeResult,
   cutAngle,
   DEFAULT_TABLE,
+  effectiveContact,
   type FullResult,
   GENERATOR_VERSION,
   generateShot,
   ghostAt,
   type LevelId,
-  nudge,
-  placeFromDrag,
+  nudgePos,
   radToDeg,
   type Shot,
   spawnTheta,
+  type Vec2,
 } from './core'
 import { TopDownView } from './debug/topdown'
 import { Scene3D } from './scene/scene'
 import { buildFeedback } from './ui/feedback'
-import { buildHud, updateChip } from './ui/hud'
+import { buildHud, type NudgeDir, updateChip } from './ui/hud'
 import { loadSettings, loadStats, recordAttempt, saveSettings, suggestLevelUp } from './ui/storage'
 import { Store } from './ui/store'
 
-// App wiring (PLAN.md §3): store ⇄ scene ⇄ hud; the submit state machine
-// AIMING → LOCKED (150 ms) → REVEAL → ANIMATING (tap skips) → RESULT; ?seed= parsing.
-// The 3D scene is the main view; the top-down oracle renders behind ?debug=1 and as the
-// RESULT mini-map (§2.12 — two independent projections of the same θ).
+// App wiring (PLAN.md §3, v2 placement per docs/decisions.md): store ⇄ scene ⇄ hud; the
+// submit state machine AIMING → LOCKED (150 ms) → REVEAL → ANIMATING (tap skips) →
+// RESULT; ?seed= parsing. The guess is a free 2D ghost position — overlap and gaps
+// allowed — and the verdict comes from the physically-resolved effective contact.
 
 const table = DEFAULT_TABLE
 const LOCKED_MS = 150
 const REVEAL_MS = 650
+const SWIPE_MM_PER_PX = 0.15 // down-view relative swipe sensitivity
 
 interface UrlParams {
   seed: number | null
@@ -82,6 +84,12 @@ function toast(message: string, actions?: Array<{ label: string; onClick: () => 
   if (!actions?.length) setTimeout(() => t.remove(), 4000)
 }
 
+// Ghost spawns touching at the jittered straight-through angle (§1): a neutral full-ball
+// starting guess that leaks nothing about the answer; the user moves it freely from there.
+function spawnPos(s: Shot): Vec2 {
+  return ghostAt(spawnTheta(s, table), s.object, table.cfg.ballRadiusMm)
+}
+
 function boot(): void {
   const app = document.getElementById('app')
   if (!app) throw new Error('no #app')
@@ -104,7 +112,7 @@ function boot(): void {
     phase: 'aiming',
     stance: 'standing',
     shot,
-    theta: spawnTheta(shot, table),
+    ghost: spawnPos(shot),
     result: null,
     level,
     assisted: false,
@@ -122,33 +130,21 @@ function boot(): void {
   canvasWrap.append(canvas)
   app.append(canvasWrap)
 
-  let lastNudgeSign = 1
-  const resolveTangentSign = (): number => {
-    const tangentX = scene.nudgeTangentScreenX(store.get().theta)
-    let sign: number
-    if (Math.abs(tangentX) < 1.5) {
-      sign = lastNudgeSign // degenerate projection — hysteresis holds the last mapping (§4.7)
-    } else {
-      sign = tangentX > 0 ? 1 : -1
-    }
-    lastNudgeSign = sign
-    return sign
-  }
-
   const scene = new Scene3D(canvas, canvasWrap, table, {
     onDragPoint: (p) => {
       const s = store.get()
       if (s.phase !== 'aiming') return
-      store.set({ theta: placeFromDrag(p, s.shot.object, s.shot.cue, s.theta, table) })
+      store.set({ ghost: clampPlacement(p, s.shot.object, table) })
     },
-    onSwipe: (dTheta) => {
+    onSwipe: (dxPx, dyPx) => {
       const s = store.get()
       if (s.phase !== 'aiming') return
-      // swipe sign follows the on-screen tangent, like the arrows (§4.7)
-      const sign = resolveTangentSign()
-      store.set({
-        theta: clampToReachable(s.theta + sign * dTheta, s.shot.object, s.shot.cue, table),
-      })
+      const dirs = scene.screenDirs()
+      const delta = {
+        x: (dirs.right.x * dxPx - dirs.up.x * dyPx) * SWIPE_MM_PER_PX,
+        y: (dirs.right.y * dxPx - dirs.up.y * dyPx) * SWIPE_MM_PER_PX,
+      }
+      store.set({ ghost: nudgePos(s.ghost, delta, s.shot.object, table).pos })
     },
   })
 
@@ -182,7 +178,7 @@ function boot(): void {
     if (s.phase !== 'aiming') return
     const result: FullResult = computeResult(
       {
-        thetaUser: s.theta,
+        ghostPos: s.ghost,
         cue: s.shot.cue,
         object: s.shot.object,
         targetPocketId: s.shot.pocketId,
@@ -190,7 +186,7 @@ function boot(): void {
       table,
     )
     const stats = recordAttempt(s.stats, s.level, {
-      errDeg: result.thetaErrorDeg,
+      errMm: result.positionErrorMm,
       band: result.band,
       potted: result.potted,
       assisted: s.assisted,
@@ -230,7 +226,7 @@ function boot(): void {
     store.set({
       phase: 'aiming',
       shot: s2,
-      theta: spawnTheta(s2, table),
+      ghost: spawnPos(s2),
       result: null,
       assisted: false,
       peeking: false,
@@ -244,7 +240,7 @@ function boot(): void {
     const s = store.get()
     feedback.hide()
     // same shot, flagged assisted — excluded from streaks/averages (§5)
-    store.set({ phase: 'aiming', result: null, assisted: true, theta: spawnTheta(s.shot, table) })
+    store.set({ phase: 'aiming', result: null, assisted: true, ghost: spawnPos(s.shot) })
   }
 
   let levelToastShown = false
@@ -265,13 +261,28 @@ function boot(): void {
     ])
   }
 
+  const nudgeDelta = (dir: NudgeDir, stepMm: number): Vec2 => {
+    const dirs = scene.screenDirs()
+    switch (dir) {
+      case 'left':
+        return { x: -dirs.right.x * stepMm, y: -dirs.right.y * stepMm }
+      case 'right':
+        return { x: dirs.right.x * stepMm, y: dirs.right.y * stepMm }
+      case 'up':
+        return { x: dirs.up.x * stepMm, y: dirs.up.y * stepMm }
+      case 'down':
+        return { x: -dirs.up.x * stepMm, y: -dirs.up.y * stepMm }
+      default:
+        return { x: 0, y: 0 }
+    }
+  }
+
   const hud = buildHud(app, store, {
-    onNudge: (arrow, step) => {
+    onNudge: (dir, stepMm) => {
       const s = store.get()
       if (s.phase !== 'aiming') return false
-      const arrowSign = arrow === 'right' ? resolveTangentSign() : -resolveTangentSign()
-      const res = nudge(s.theta, arrowSign * step, s.shot.object, s.shot.cue, table)
-      store.set({ theta: res.theta })
+      const res = nudgePos(s.ghost, nudgeDelta(dir, stepMm), s.shot.object, table)
+      store.set({ ghost: res.pos })
       return res.atLimit
     },
     onSubmit: submit,
@@ -299,9 +310,25 @@ function boot(): void {
   store.subscribe((state, prev) => {
     scene.update(state, prev)
     debugView?.render(state)
-    const u = ghostAt(state.theta, state.shot.object, table.cfg.ballRadiusMm)
-    const phi = cutAngle(state.shot.cue, u, state.shot.object)
-    if (state.settings.contactChip) updateChip(hud.chip, 1 - Math.sin(phi), radToDeg(phi))
+    if (state.settings.contactChip) {
+      const r = table.cfg.ballRadiusMm
+      const eff = effectiveContact(state.shot.cue, state.ghost, state.shot.object, r)
+      const centerDist = Math.hypot(
+        state.ghost.x - state.shot.object.x,
+        state.ghost.y - state.shot.object.y,
+      )
+      const radialMm = centerDist - 2 * r
+      if (eff) {
+        const phi = cutAngle(
+          state.shot.cue,
+          ghostAt(eff.theta, state.shot.object, r),
+          state.shot.object,
+        )
+        updateChip(hud.chip, 1 - Math.sin(phi), radToDeg(phi), radialMm)
+      } else {
+        updateChip(hud.chip, null, null, radialMm)
+      }
+    }
     const seedChip = document.getElementById('seed-chip')
     if (seedChip) seedChip.textContent = `#${state.shot.seed}`
   })

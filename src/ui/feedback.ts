@@ -44,7 +44,7 @@ export function buildFeedback(container: HTMLElement): FeedbackPanel {
       const band = document.createElement('div')
       band.className = `result-band band-${result.band}`
       band.textContent = `${BAND_LABEL[result.band] ?? result.band} — ${formatErrorLine(
-        result.contactErrorMm,
+        result.positionErrorMm,
         result.overcut,
       )}`
       root.append(band)
@@ -61,7 +61,17 @@ export function buildFeedback(container: HTMLElement): FeedbackPanel {
         div.append(l, v)
         rows.append(div)
       }
-      row('angle error', `${result.thetaErrorDeg.toFixed(2)}°`)
+      row('ghost position', `${result.positionErrorMm.toFixed(1)} mm from perfect`)
+      row('direction', `${result.thetaErrorDeg.toFixed(2)}° off the pot line`)
+      // v2: judging the touching distance is part of the skill
+      const rad = result.radialErrorMm
+      if (Math.abs(rad) < 0.3) {
+        row('touch', 'touching the object ball ✓')
+      } else if (rad > 0) {
+        row('touch', `${rad.toFixed(1)} mm short — not touching`)
+      } else {
+        row('touch', `${(-rad).toFixed(1)} mm overlapping the object ball`)
+      }
       row(
         'cut angle',
         `${result.cutAngleUserDeg.toFixed(1)}° (true ${result.cutAngleTrueDeg.toFixed(1)}°)`,
@@ -71,9 +81,9 @@ export function buildFeedback(container: HTMLElement): FeedbackPanel {
       } else if (result.missMm !== null && result.missMm > 0) {
         row('missed by', `${result.missMm.toFixed(1)} mm`)
       }
-      if (result.thetaErrorDeg <= 1.5) {
+      if (result.positionErrorMm <= 1.5) {
         // near-overlap: the truth renders as an outline ring; the exact gap lives here (§5)
-        row('gap to perfect', `${result.chordErrorMm.toFixed(2)} mm (truth = cyan ring)`)
+        row('gap to perfect', `${result.positionErrorMm.toFixed(2)} mm (truth = cyan ring)`)
       }
       root.append(rows)
 
@@ -138,6 +148,8 @@ function headlineText(result: FullResult): string {
       return result.sim.detail === 'rattled'
         ? '○ RATTLED THE JAWS — no drop'
         : '○ MISSED — hit the cushion'
+    case 'whiff':
+      return '○ WHIFF — the cue ball misses the object ball entirely'
     default:
       return '○ MISSED'
   }

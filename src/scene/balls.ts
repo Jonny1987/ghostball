@@ -1,11 +1,10 @@
 import * as THREE from 'three'
-import { ghostAt, type Shot, type Table, trueGhost, type Vec2 } from '../core'
+import { type Shot, type Table, trueGhost, type Vec2 } from '../core'
 import { ballMaterial, contactShadowTexture, ghostMaterial } from './materials'
 import { BED_Y, MM_TO_M, toWorld } from './units'
 
 // Ball meshes + contact-shadow discs + ghost footprint rings (PLAN.md §3 balls.ts).
 
-const GHOST_OPACITY = 0.45
 const COLOR = {
   cue: 0xf5f1e6,
   object: 0xc0392b,
@@ -82,8 +81,9 @@ export class Balls {
     objMat.map = marbleTexture('#c0392b')
     this.object = new THREE.Mesh(sphere, objMat)
 
-    this.ghost = new THREE.Mesh(sphere, ghostMaterial(COLOR.ghost, GHOST_OPACITY))
-    this.ghost.renderOrder = 2
+    // v2: the ghost is FULLY OPAQUE — it reads as the real cue ball at the imagined
+    // contact; the dashed footprint ring is what marks it as hypothetical.
+    this.ghost = new THREE.Mesh(sphere, ballMaterial(COLOR.ghost))
 
     this.truth = new THREE.Mesh(sphere, ghostMaterial(COLOR.truth, 0.4))
     this.truth.renderOrder = 2
@@ -129,7 +129,7 @@ export class Balls {
 
   sync(
     shot: Shot,
-    theta: number,
+    ghostPos: Vec2,
     showTruth: boolean,
     userAsGuessColor: boolean,
     touchObject = true,
@@ -142,13 +142,12 @@ export class Balls {
       this.object.quaternion.identity()
     }
 
-    const u = ghostAt(theta, shot.object, this.table.cfg.ballRadiusMm)
+    const u = ghostPos
     this.place(this.ghost, u)
     this.ghostRing.position.set(this.ghost.position.x, BED_Y + 0.001, this.ghost.position.z)
 
     const mat = this.ghost.material as THREE.MeshPhysicalMaterial
     mat.color.setHex(userAsGuessColor ? COLOR.user : COLOR.ghost)
-    mat.opacity = userAsGuessColor ? 0.55 : GHOST_OPACITY
 
     if (showTruth) {
       const pk = this.table.pockets[shot.pocketId]

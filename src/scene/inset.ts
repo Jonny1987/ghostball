@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { ghostAt, type Shot, type Table } from '../core'
+import type { Shot, Table, Vec2 } from '../core'
 import { toWorld } from './units'
 
 // Contact-zoom inset (PLAN.md §2.6): a picture-in-picture second render pass at narrow FOV
@@ -18,7 +18,7 @@ export class ContactInset {
     scene: THREE.Scene,
     mainCamera: THREE.PerspectiveCamera,
     shot: Shot,
-    theta: number,
+    ghostPos: Vec2,
     table: Table,
   ): void {
     if (!this.visible) return
@@ -26,10 +26,12 @@ export class ContactInset {
     const px = Math.round(size.x * INSET_FRACTION)
     const margin = Math.round(size.x * 0.03)
 
-    // contact point = midpoint of ghost and object centres
+    // contact region = midpoint of ghost and object centres
     const r = table.cfg.ballRadiusMm
-    const u = ghostAt(theta, shot.object, r)
-    const contact = toWorld({ x: (u.x + shot.object.x) / 2, y: (u.y + shot.object.y) / 2 }, r)
+    const contact = toWorld(
+      { x: (ghostPos.x + shot.object.x) / 2, y: (ghostPos.y + shot.object.y) / 2 },
+      r,
+    )
 
     this.camera.position.copy(mainCamera.position)
     this.camera.fov = INSET_FOV

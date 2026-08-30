@@ -1,4 +1,4 @@
-import type { FullResult, LevelId, Shot } from '../core'
+import type { FullResult, LevelId, Shot, Vec2 } from '../core'
 import type { Settings, StatsByLevel } from './storage'
 
 // Typed pub/sub app state (PLAN.md §3). The store is the single source of truth; the
@@ -11,7 +11,7 @@ export interface AppState {
   phase: Phase
   stance: Stance
   shot: Shot
-  theta: number // the entire guess is this one angle (§2.4)
+  ghost: Vec2 // v2: the guess is a full 2D position (docs/decisions.md)
   result: FullResult | null
   level: LevelId
   assisted: boolean // peeked or retried — excluded from streak/averages (§5)

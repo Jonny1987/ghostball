@@ -1,5 +1,5 @@
 import type * as THREE from 'three'
-import { ghostAt, type Shot, type Table } from '../core'
+import type { Table, Vec2 } from '../core'
 import { toWorld } from './units'
 
 // Runtime tripwires (PLAN.md §2.12), active in dev and ?debug=1 builds: on every rendered
@@ -15,21 +15,17 @@ let fired = false
 
 export function assertCrossProjection(
   ghostMesh: THREE.Object3D,
-  shot: Shot,
-  theta: number,
+  ghostPos: Vec2,
   table: Table,
 ): void {
   if (!assertionsEnabled || fired) return
-  const expected = toWorld(
-    ghostAt(theta, shot.object, table.cfg.ballRadiusMm),
-    table.cfg.ballRadiusMm,
-  )
+  const expected = toWorld(ghostPos, table.cfg.ballRadiusMm)
   const err = expected.distanceTo(ghostMesh.position as THREE.Vector3)
   if (err > TOLERANCE_M) {
     fired = true // report once, loudly, without spamming every frame
     console.error(
       `CROSS-PROJECTION ASSERTION FAILED: ghost mesh is ${(err * 1000).toFixed(3)} mm from ` +
-        `core's U(θ) — scene-layer drift (PLAN.md §2.12)`,
+        `the store's ghost position — scene-layer drift (PLAN.md §2.12)`,
     )
   }
 }

@@ -13,7 +13,7 @@ export interface Settings {
 }
 
 export interface AttemptRecord {
-  errDeg: number
+  errMm: number
   band: Band
   potted: boolean
   assisted: boolean
@@ -26,14 +26,14 @@ export interface LevelStats {
   assisted: number
   streakCurrent: number
   streakBest: number
-  bestErrorDeg: number | null
+  bestErrorMm: number | null
   recent: AttemptRecord[]
 }
 
 export type StatsByLevel = Record<string, LevelStats>
 
 const SETTINGS_KEY = 'gb.settings.v1'
-const STATS_KEY = 'gb.stats.v2'
+const STATS_KEY = 'gb.stats.v3' // v3: errors recorded in mm (v2 free placement)
 const RECENT_CAP = 100
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -51,7 +51,7 @@ export const emptyLevelStats = (): LevelStats => ({
   assisted: 0,
   streakCurrent: 0,
   streakBest: 0,
-  bestErrorDeg: null,
+  bestErrorMm: null,
   recent: [],
 })
 
@@ -112,8 +112,7 @@ export function recordAttempt(
     } else {
       cur.streakCurrent = 0
     }
-    cur.bestErrorDeg =
-      cur.bestErrorDeg === null ? rec.errDeg : Math.min(cur.bestErrorDeg, rec.errDeg)
+    cur.bestErrorMm = cur.bestErrorMm === null ? rec.errMm : Math.min(cur.bestErrorMm, rec.errMm)
   }
   cur.recent = [...cur.recent, rec].slice(-RECENT_CAP)
   const next = { ...stats, [String(level)]: cur }

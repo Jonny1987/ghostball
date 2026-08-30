@@ -55,6 +55,12 @@ No React/Svelte (the HUD is ~12 elements; a framework fights the imperative scen
 
 ### 2.4 Constraint & interaction model: single scalar θ — with the corrected reachability condition
 
+> **Superseded (v2, 2026-08-30):** placement is now a free 2D position with
+> effective-contact physics and max-zoom framing — see the "Design change: v2 free
+> placement" entry in `docs/decisions.md`. The θ-parameterised geometry below remains the
+> substrate (truth, windows, event simulation are unchanged); only the *guess* is no longer
+> constrained to the circle.
+
 The entire guess is one angle θ on the circle of radius 2r around O. Every input path (drag, swipe, nudge) resolves to θ; the constraint is unbreakable and the state trivially serialisable.
 
 **The reachability condition is `dot(U − O, C − O) ≥ 4r²`** (half-width `Δ = arccos(2r/D)` about the O→C direction), **not** the naive facing-half-circle `dot > 0`. The 4r² threshold simultaneously excludes ≥90° cuts and guarantees the cue ball's straight path to U isn't blocked by the object ball (derivation in §4.6). Because this is exactly the condition the research documents disagreed on, dedicated boundary tests sit at ψ = Δ on both sides (§7).

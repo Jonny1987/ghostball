@@ -74,25 +74,9 @@ describe('generator validity — 1000 seeded shots per level (§4.10, §7)', () 
         // check 5: cut angle within the level's range (both ends)
         expect(radToDeg(s.cutAngleTrue)).toBeLessThanOrEqual(params.cutDeg[1] + 0.02)
         expect(radToDeg(s.cutAngleTrue)).toBeGreaterThanOrEqual(params.cutDeg[0] - 0.02)
-        // check 6: standing-frameability re-check with the rung's margin
-        const arc = reachableArc(s.object, s.cue, T)
-        const wantPocket =
-          params.pocketFrame === 'hard' || (p.pocketPreferred && s.widenRung === 0)
-            ? s.pocketId
-            : null
-        expect(
-          standingFrameCheck(
-            {
-              cue: s.cue,
-              object: s.object,
-              arcThetaC: arc.thetaC,
-              arcHalfWidth: arc.halfWidth,
-              includePocketId: wantPocket,
-              ndcMargin: p.ndcMargin,
-            },
-            T,
-          ),
-        ).toBe(true)
+        // check 6 (v2): zoom-fit frameability re-check with the rung's margin — hard
+        // for every level, pocket always included
+        expect(standingFrameCheck(s.cue, s.object, s.pocketId, T, p.fitMargin)).toBe(true)
         // check 7: truth pots
         expect(simulate(s.thetaTrue, s.object, s.pocketId, T).outcome).toBe('target_pocket')
         // stored thetaTrue matches the geometry
@@ -113,11 +97,9 @@ describe('generator validity — 1000 seeded shots per level (§4.10, §7)', () 
       expect(r0.cushionClear).toBe(80)
       expect(r0.dOPMin).toBe(params.dOP[0])
       expect(r0.dCOMin).toBe(params.dCO[0])
-      expect(r0.ndcMargin).toBe(0.9)
-      expect(r0.pocketPreferred).toBe(params.pocketFrame === 'preferred')
+      expect(r0.fitMargin).toBeCloseTo(1.12, 9)
       const r1 = rungParams(1, params)
-      expect(r1.ndcMargin).toBe(1.0) // rung 1: frame margin relaxed, L2 preference dropped
-      expect(r1.pocketPreferred).toBe(false)
+      expect(r1.fitMargin).toBeCloseTo(1.04, 9) // rung 1: zoom-fit margin relaxed
       expect(r1.dOPMin).toBe(params.dOP[0]) // distances not yet relaxed
       const r2 = rungParams(2, params)
       expect(r2.dOPMin).toBeCloseTo(params.dOP[0] * 0.8, 9) // rung 2: minima −20 %

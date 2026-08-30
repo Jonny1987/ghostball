@@ -21,6 +21,37 @@ docs guessed turned out to exist and be the latest stable — no fallbacks neede
 
 Node 22 in CI (matches local dev container).
 
+## Design change: v2 free placement (2026-08-30, user decision)
+
+The v1 constraint circle (ghost restricted to touching positions) made the drill too easy —
+only the angle was being judged. v2, per the owner's direction:
+
+- **Free 2D placement**: the ghost moves anywhere within a bounded disc around the object
+  ball (`maxCenterDistMm` = 2×2r, i.e. up to one ball diameter of gap; overlap allowed all
+  the way to centre). Judging the touching distance is now part of the skill.
+- **Effective-contact physics**: the placed ghost expresses an AIM — the cue ball is driven
+  from C along the ray through the placement and physics resolves where it first touches O
+  (`effectiveContact`). Overlap/short placements contact at a slightly different angle than
+  placed; an aim line passing > 2r from O is a **whiff** (new outcome). On-circle reachable
+  placements reproduce v1 behaviour exactly, so the golden vectors carry over.
+- **Scoring**: grade bands now on `positionErrorMm` = |U − G| (same numeric thresholds — 1°
+  of arc at 2r ≈ 1 mm); plus signed `radialErrorMm` (gap/overlap) in the result panel and
+  live in the contact chip.
+- **Zoom framing**: the standing camera zooms in as far as possible while keeping the target
+  pocket AND the whole placement region (plus ball + 15 mm margin) visible — implemented
+  once in core (`fitStandingZoom`) and shared verbatim by the generator's frameability check
+  (reference viewport) and the runtime camera (actual aspect). The cue ball may leave frame;
+  the camera sits on the cue line so the perspective still carries the shot direction.
+  Pocket frameability is now HARD for all levels. GENERATOR_VERSION bumped to 2 (old ?seed=
+  links regenerate).
+- **Opaque ghost**: fully opaque white ball (the dashed footprint ring marks it as
+  hypothetical); reveal recolours it amber as before.
+- **4-way nudges**: screen-space ◀▶▲▼ at 0.25 mm fine / 1 mm coarse (hold-accelerate),
+  replacing the 1D arc arrows; down-view swipe is now 2D at 0.15 mm/px.
+- Stats storage bumped to `gb.stats.v3` (mm-based records).
+
+PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
+
 ## Implementation state (2026-08-30)
 
 Milestones M0, M1a, M1b, M2, M3 and most of M5 are implemented and verified headlessly
