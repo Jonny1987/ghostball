@@ -35,10 +35,15 @@ jobs:
         with:
           path: dist
 
+  # Pages deploy. NOTE: this repo is currently PRIVATE — GitHub Pages needs a public repo
+  # (or a paid plan), so the deploy is continue-on-error until that changes. Once the repo
+  # is public, re-run this job (or push to main); configure-pages then creates the site
+  # automatically. See README "Try it".
   deploy:
     if: github.ref == 'refs/heads/main'
     needs: ci
     runs-on: ubuntu-latest
+    continue-on-error: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
