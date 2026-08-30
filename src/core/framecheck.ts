@@ -71,8 +71,10 @@ function requiredPoints(object: Vec2, pocketId: number, table: Table): Vec3[] {
   return pts
 }
 
-// Max-zoom fit: gnomonic-project the required points from the eye, centre the look
-// direction on their bounding box, and take the smallest FOV that contains it (two
+// Max-zoom fit: gnomonic-project the required points from the eye, aim the look
+// direction so the PLACEMENT REGION (centred on O — where the ghost lives) sits at the
+// horizontal centre of the screen, centre vertically on the bounding box, and take the
+// smallest FOV that still contains everything — the pocket sits off to one side (two
 // recentering iterations make the first-order approximation exact enough).
 export function fitStandingZoom(
   cue: Vec2,
@@ -111,9 +113,21 @@ export function fitStandingZoom(
       if (yt < yMin) yMin = yt
       if (yt > yMax) yMax = yt
     }
-    const cx = (xMin + xMax) / 2
+    // horizontal centre is FORCED to O (pts[0]) so the ghost stays mid-screen; the
+    // horizontal half-width is measured from there (the pocket side dominates it)
+    const vO = sub3(pts[0] as Vec3, eye)
+    const xO = dot3(vO, right) / dot3(vO, forward)
+    let tanHMax = 0
+    for (const p of pts) {
+      const v = sub3(p, eye)
+      const zc = dot3(v, forward)
+      if (zc <= 1) continue
+      const d = Math.abs(dot3(v, right) / zc - xO)
+      if (d > tanHMax) tanHMax = d
+    }
+    const cx = xO
     const cy = (yMin + yMax) / 2
-    tanH = ((xMax - xMin) / 2) * fitMargin
+    tanH = tanHMax * fitMargin
     tanV = ((yMax - yMin) / 2) * fitMargin
     forward = norm3(add3(forward, add3(scale3(right, cx), scale3(up, cy))))
   }

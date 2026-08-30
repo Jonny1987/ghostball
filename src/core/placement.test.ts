@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { clampPlacement, frameRadiusMm, ghostAt, maxCenterDistMm, nudgePos } from './constraint'
-import { standingFrameCheck } from './framecheck'
+import { fitStandingZoom, standingFrameCheck } from './framecheck'
 import { generateShot } from './generate'
 import { trueGhost } from './ghost'
 import { computeResult } from './score'
@@ -158,3 +158,35 @@ describe('v2 frameability over generated shots', () => {
     }
   })
 })
+
+describe('v2.1 standing framing: ghost region horizontally centred', () => {
+  it('the object ball (placement-region centre) projects to screen centre-x on every generated shot', () => {
+    for (const level of [1, 2, 3] as LevelId[]) {
+      for (let seed = 700; seed < 740; seed++) {
+        const s = generateShot(seed, level, T)
+        const fit = fitStandingZoom(s.cue, s.object, s.pocketId, T, 390 / 844)
+        // rebuild the camera basis from the returned look and check O's tangent-x ≈ 0
+        const fwd = fit.look
+        const right = norm3(cross3(fwd, { x: 0, y: 0, z: 1 }))
+        const v = { x: s.object.x - fit.eye.x, y: s.object.y - fit.eye.y, z: r - fit.eye.z }
+        const zc = v.x * fwd.x + v.y * fwd.y + v.z * fwd.z
+        const xt = (v.x * right.x + v.y * right.y + v.z * right.z) / zc
+        expect(Math.abs(xt)).toBeLessThan(0.02) // ≲ 1° off exact centre
+        expect(fit.fits).toBe(true)
+      }
+    }
+  })
+})
+
+function cross3(a: V3, b: V3): V3 {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x }
+}
+function norm3(a: V3): V3 {
+  const l = Math.hypot(a.x, a.y, a.z)
+  return { x: a.x / l, y: a.y / l, z: a.z / l }
+}
+interface V3 {
+  x: number
+  y: number
+  z: number
+}

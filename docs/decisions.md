@@ -50,6 +50,13 @@ only the angle was being judged. v2, per the owner's direction:
   replacing the 1D arc arrows; down-view swipe is now 2D at 0.15 mm/px.
 - Stats storage bumped to `gb.stats.v3` (mm-based records).
 
+**v2.1 (same day):** the standing view's look direction is now forced so the placement
+region (centred on the object ball, where the ghost lives) sits at the horizontal centre of
+the screen; the FOV widens just enough to keep the pocket in frame off to one side. The
+camera stays fixed per shot (yawing to follow the ghost live would slide the scene under
+the finger mid-drag), and the ghost's ±114 mm wander keeps it within ~1–2° of centre.
+GENERATOR_VERSION → 3.
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)

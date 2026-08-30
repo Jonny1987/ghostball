@@ -101,7 +101,10 @@ body {
 }
 
 .stance-control {
-  align-self: center;
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 58px);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   background: var(--pill-bg);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -127,10 +130,14 @@ body {
 }
 
 .chip-row {
+  position: absolute;
+  left: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column-reverse; /* chip at the bottom, peek above it */
+  align-items: flex-start;
   gap: 8px;
+  max-width: calc(100vw - 100px); /* keep clear of the vertical nudge arrows */
 }
 
 .contact-chip {
