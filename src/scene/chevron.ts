@@ -39,7 +39,8 @@ export class PocketChevron {
       x = -x
       y = -y
     }
-    const angle = Math.atan2(y, x)
+    // rotation must use PIXEL deltas (NDC is aspect-distorted; canvas y runs down)
+    const angle = Math.atan2((-y * h) / 2, (x * w) / 2)
     const edgeX = Math.max(-0.88, Math.min(0.88, x))
     const edgeY = Math.max(-0.82, Math.min(0.82, y))
     const sx = ((edgeX + 1) / 2) * w
@@ -47,7 +48,7 @@ export class PocketChevron {
     this.el.hidden = false
     this.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -50%)`
     const arrow = this.el.firstElementChild as HTMLElement | null
-    if (arrow) arrow.style.transform = `rotate(${-angle}rad)`
+    if (arrow) arrow.style.transform = `rotate(${angle}rad)`
     const dm = dist(shot.object, pk.m) / 1000
     this.label.textContent = `pocket ${dm.toFixed(1)} m`
   }

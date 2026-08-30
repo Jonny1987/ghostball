@@ -56,6 +56,7 @@ export class TopDownView {
 
   private bindPointer(): void {
     let dragging = false
+    let activePointer: number | null = null
     const toTable = (ev: PointerEvent): Vec2 => {
       const rect = this.canvas.getBoundingClientRect()
       const px = (ev.clientX - rect.left) * (this.canvas.width / rect.width)
@@ -63,16 +64,24 @@ export class TopDownView {
       return this.screenToWorld(px, py)
     }
     this.canvas.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0 || ev.isPrimary === false || activePointer !== null) return
+      activePointer = ev.pointerId
       dragging = true
       this.canvas.setPointerCapture(ev.pointerId)
       this.opts.onDrag?.(toTable(ev))
     })
     this.canvas.addEventListener('pointermove', (ev) => {
-      if (dragging) this.opts.onDrag?.(toTable(ev))
+      if (dragging && ev.pointerId === activePointer) this.opts.onDrag?.(toTable(ev))
     })
     const stop = (ev: PointerEvent): void => {
+      if (ev.pointerId !== activePointer) return
+      activePointer = null
       dragging = false
-      this.canvas.releasePointerCapture(ev.pointerId)
+      try {
+        this.canvas.releasePointerCapture(ev.pointerId)
+      } catch {
+        // capture already released
+      }
     }
     this.canvas.addEventListener('pointerup', stop)
     this.canvas.addEventListener('pointercancel', stop)

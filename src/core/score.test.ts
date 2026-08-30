@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateShot } from './generate'
 import { trueGhost } from './ghost'
-import { computeResult, fullnessBand, gradeBand } from './score'
+import { computeResult, fullnessBand, gradeBand, jawWindow } from './score'
 import { DEFAULT_TABLE } from './table'
 import type { LevelId } from './types'
 import { degToRad, radToDeg, vec } from './vec'
@@ -23,11 +23,19 @@ describe('grade bands (§2.7)', () => {
 })
 
 describe('fullness bands (§4.9)', () => {
-  it('verbal band mapping', () => {
+  it('verbal band mapping incl. every §4.9 edge', () => {
     expect(fullnessBand(0.9)).toBe('nearly full ball')
+    expect(fullnessBand(0.85)).toBe('nearly full ball')
+    expect(fullnessBand(0.849)).toBe('about ¾ ball')
     expect(fullnessBand(0.683)).toBe('about ¾ ball')
+    expect(fullnessBand(0.6)).toBe('about ¾ ball')
+    expect(fullnessBand(0.599)).toBe('about ½ ball')
     expect(fullnessBand(0.5)).toBe('about ½ ball')
+    expect(fullnessBand(0.4)).toBe('about ½ ball')
+    expect(fullnessBand(0.399)).toBe('about ¼ ball')
     expect(fullnessBand(0.2)).toBe('about ¼ ball')
+    expect(fullnessBand(0.15)).toBe('about ¼ ball')
+    expect(fullnessBand(0.149)).toBe('very thin')
     expect(fullnessBand(0.1)).toBe('very thin')
   })
 })
@@ -122,7 +130,7 @@ describe('result payload invariants', () => {
     expect(res.marginMm).toBeNull()
   })
 
-  it('window monotonicity sanity: reported window is positive on real shots', () => {
+  it('clipped window is positive and never exceeds the jaw-subtended bound', () => {
     for (let seed = 200; seed < 220; seed++) {
       const s = generateShot(seed, 2, T)
       const res = computeResult(
@@ -132,7 +140,12 @@ describe('result payload invariants', () => {
       expect(res.allowedWindowDeg).toBeGreaterThan(0)
       expect(res.windowPlusDeg).toBeGreaterThan(0)
       expect(res.windowMinusDeg).toBeGreaterThan(0)
-      expect(radToDeg(degToRad(res.allowedWindowDeg))).toBeCloseTo(res.allowedWindowDeg, 9)
+      const jaw = jawWindow(s.object, s.pocketId, T)
+      expect(res.windowPlusDeg).toBeLessThanOrEqual(radToDeg(Math.max(jaw.plus, jaw.minus)) + 0.02)
+      expect(res.windowMinusDeg).toBeLessThanOrEqual(radToDeg(Math.max(jaw.plus, jaw.minus)) + 0.02)
+      expect(res.allowedWindowDeg).toBeLessThanOrEqual(
+        radToDeg(Math.min(jaw.plus, jaw.minus)) + 0.02,
+      )
     }
   })
 })

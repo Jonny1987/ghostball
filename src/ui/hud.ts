@@ -98,6 +98,13 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   peek.addEventListener('pointerup', peekEnd)
   peek.addEventListener('pointercancel', peekEnd)
   peek.addEventListener('pointerleave', peekEnd)
+  peek.addEventListener('keydown', (ev) => {
+    if ((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) peekStart(ev)
+  })
+  peek.addEventListener('keyup', (ev) => {
+    if (ev.key === ' ' || ev.key === 'Enter') peekEnd()
+  })
+  peek.addEventListener('click', (ev) => ev.preventDefault())
 
   levelPill.addEventListener('click', () => {
     const cur = store.get().level
@@ -114,6 +121,9 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
       const arrow = ev.key === 'ArrowLeft' ? 'left' : 'right'
       cb.onNudge(arrow, ev.shiftKey ? COARSE_STEP : FINE_STEP)
     } else if (ev.key === 'Enter') {
+      if (ev.repeat) return // key auto-repeat must not chain next-shot → instant submit
+      if (ev.target instanceof HTMLButtonElement) return // native click will handle it
+      ev.preventDefault()
       if (state.phase === 'aiming') cb.onSubmit()
       else if (state.phase === 'result') cb.onNext()
     } else if (ev.key === 's' || ev.key === 'S') {
@@ -126,7 +136,14 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   })
 
   // reactive updates
-  store.subscribe((state) => {
+  let nextGuardUntil = 0
+  store.subscribe((state, prev) => {
+    if (state.phase === 'result' && prev.phase !== 'result') {
+      nextGuardUntil = performance.now() + 350
+      setTimeout(() => {
+        submit.disabled = store.get().phase !== 'result' ? submit.disabled : false
+      }, 360)
+    }
     const fullness = state.result?.contactFullness
     void fullness
     streak.textContent = `streak ${currentStreak(store)}`
@@ -135,7 +152,11 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
     downBtn.classList.toggle('active', state.stance === 'down')
     submit.textContent = state.phase === 'result' ? 'NEXT' : 'SUBMIT'
     submit.disabled =
-      state.phase === 'locked' || state.phase === 'reveal' || state.phase === 'animating'
+      state.phase === 'locked' ||
+      state.phase === 'reveal' ||
+      state.phase === 'animating' ||
+      // brief guard on entering RESULT so a double-tap on SUBMIT can't instantly skip it
+      (state.phase === 'result' && performance.now() < nextGuardUntil)
     const aiming = state.phase === 'aiming'
     arrowLeft.disabled = !aiming
     arrowRight.disabled = !aiming
@@ -167,7 +188,10 @@ function bindArrow(
   let heldSince = 0
 
   const doStep = (): void => {
-    if (store.get().phase !== 'aiming') return
+    if (store.get().phase !== 'aiming') {
+      stop() // phase changed mid-hold (e.g. submit via keyboard) — kill the repeat
+      return
+    }
     const elapsed = heldSince > 0 ? performance.now() - heldSince : 0
     const step = elapsed >= ESCALATE_MS ? COARSE_STEP : FINE_STEP
     const atLimit = cb.onNudge(arrow, step)
@@ -194,6 +218,7 @@ function bindArrow(
 
   btn.addEventListener('pointerdown', (ev) => {
     ev.preventDefault()
+    stop() // never orphan a previous press's timers
     btn.setPointerCapture(ev.pointerId)
     heldSince = performance.now()
     doStep()
@@ -204,6 +229,7 @@ function bindArrow(
   btn.addEventListener('pointerup', stop)
   btn.addEventListener('pointercancel', stop)
   btn.addEventListener('pointerleave', stop)
+  window.addEventListener('blur', stop)
 }
 
 export function formatWindowLine(plusDeg: number, minusDeg: number, errDeg: number): string {

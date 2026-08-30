@@ -127,11 +127,20 @@ export class Balls {
     }
   }
 
-  sync(shot: Shot, theta: number, showTruth: boolean, userAsGuessColor: boolean): void {
+  sync(
+    shot: Shot,
+    theta: number,
+    showTruth: boolean,
+    userAsGuessColor: boolean,
+    touchObject = true,
+  ): void {
     this.place(this.cue, shot.cue)
-    this.object.visible = true
-    this.place(this.object, shot.object)
-    this.object.scale.setScalar(1)
+    if (touchObject) {
+      this.object.visible = true
+      this.place(this.object, shot.object)
+      this.object.scale.setScalar(1)
+      this.object.quaternion.identity()
+    }
 
     const u = ghostAt(theta, shot.object, this.table.cfg.ballRadiusMm)
     this.place(this.ghost, u)
@@ -164,6 +173,15 @@ export class Balls {
       this.truthRing.visible = false
       const shadow = this.shadowFor.get(this.truth)
       if (shadow) shadow.visible = false
+    }
+  }
+
+  // Keep the object ball's contact shadow under it while the submit animation moves it.
+  syncObjectShadow(): void {
+    const shadow = this.shadowFor.get(this.object)
+    if (shadow) {
+      shadow.position.set(this.object.position.x, BED_Y + 0.0006, this.object.position.z)
+      shadow.visible = this.object.visible
     }
   }
 

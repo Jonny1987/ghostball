@@ -13,6 +13,7 @@ import {
   placeFromDrag,
   radToDeg,
   type Shot,
+  spawnTheta,
 } from './core'
 import { TopDownView } from './debug/topdown'
 import { Scene3D } from './scene/scene'
@@ -81,23 +82,6 @@ function toast(message: string, actions?: Array<{ label: string; onClick: () => 
   if (!actions?.length) setTimeout(() => t.remove(), 4000)
 }
 
-// Deterministic per-seed fraction for the spawn jitter.
-function seededFrac(seed: number): number {
-  let a = seed >>> 0
-  a = (a + 0x6d2b79f5) | 0
-  let t = Math.imul(a ^ (a >>> 15), 1 | a)
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-}
-
-// Ghost spawns pre-placed at the straight-through angle jittered ±15–30° (§1):
-// no cold start, no answer leak.
-function spawnTheta(s: Shot): number {
-  const jitter = ((15 + 15 * seededFrac(s.seed)) * Math.PI) / 180
-  const sign = seededFrac(s.seed ^ 0x5bd1e995) < 0.5 ? -1 : 1
-  return clampToReachable(s.thetaTrue + sign * jitter, s.object, s.cue, table)
-}
-
 function boot(): void {
   const app = document.getElementById('app')
   if (!app) throw new Error('no #app')
@@ -120,7 +104,7 @@ function boot(): void {
     phase: 'aiming',
     stance: 'standing',
     shot,
-    theta: spawnTheta(shot),
+    theta: spawnTheta(shot, table),
     result: null,
     level,
     assisted: false,
@@ -187,6 +171,12 @@ function boot(): void {
   const feedback = buildFeedback(app)
 
   // submit state machine: AIMING → LOCKED → REVEAL → ANIMATING → RESULT (§3)
+  let submitTimers: Array<ReturnType<typeof setTimeout>> = []
+  const cancelSubmitPipeline = (): void => {
+    for (const t of submitTimers) clearTimeout(t)
+    submitTimers = []
+    scene.cancelAnimation()
+  }
   const submit = (): void => {
     const s = store.get()
     if (s.phase !== 'aiming') return
@@ -207,19 +197,23 @@ function boot(): void {
       difficultyRaw: s.shot.difficultyRaw,
     })
     store.set({ phase: 'locked', result, stats })
-    setTimeout(() => {
-      store.set({ phase: 'reveal' })
-      setTimeout(
-        () => {
-          store.set({ phase: 'animating' })
-          scene.runSubmit(result, reducedMotion, () => {
-            store.set({ phase: 'result' })
-            showResult(result)
-          })
-        },
-        reducedMotion ? 0 : REVEAL_MS,
-      )
-    }, LOCKED_MS)
+    submitTimers.push(
+      setTimeout(() => {
+        store.set({ phase: 'reveal' })
+        submitTimers.push(
+          setTimeout(
+            () => {
+              store.set({ phase: 'animating' })
+              scene.runSubmit(result, reducedMotion, () => {
+                store.set({ phase: 'result' })
+                showResult(result)
+              })
+            },
+            reducedMotion ? 0 : REVEAL_MS,
+          ),
+        )
+      }, LOCKED_MS),
+    )
   }
 
   const showResult = (result: FullResult): void => {
@@ -230,12 +224,13 @@ function boot(): void {
   }
 
   const nextShot = (lvl = store.get().level, seed = randomSeed()): void => {
+    cancelSubmitPipeline() // a stale LOCKED/REVEAL/ANIMATING pipeline must never replay (§3)
     const s2 = generateShot(seed, lvl, table)
     feedback.hide()
     store.set({
       phase: 'aiming',
       shot: s2,
-      theta: spawnTheta(s2),
+      theta: spawnTheta(s2, table),
       result: null,
       assisted: false,
       peeking: false,
@@ -245,10 +240,11 @@ function boot(): void {
   }
 
   const retry = (): void => {
+    cancelSubmitPipeline()
     const s = store.get()
     feedback.hide()
     // same shot, flagged assisted — excluded from streaks/averages (§5)
-    store.set({ phase: 'aiming', result: null, assisted: true, theta: spawnTheta(s.shot) })
+    store.set({ phase: 'aiming', result: null, assisted: true, theta: spawnTheta(s.shot, table) })
   }
 
   let levelToastShown = false
@@ -258,7 +254,13 @@ function boot(): void {
     levelToastShown = true
     const nextLevel = (s.level + 1) as LevelId
     toast("You're potting everything — try the next level?", [
-      { label: 'Switch', onClick: () => nextShot(nextLevel) },
+      {
+        label: 'Switch',
+        onClick: () => {
+          const phase = store.get().phase
+          if (phase === 'aiming' || phase === 'result') nextShot(nextLevel)
+        },
+      },
       { label: 'Stay', onClick: () => undefined },
     ])
   }
@@ -283,6 +285,7 @@ function boot(): void {
     onStance: (stance) => store.set({ stance }),
     onLevel: (lvl) => {
       const s = store.get()
+      if (s.phase !== 'aiming' && s.phase !== 'result') return // no level change mid-submit
       const nextSettings = { ...s.settings, level: lvl }
       saveSettings(nextSettings)
       store.set({ settings: nextSettings })

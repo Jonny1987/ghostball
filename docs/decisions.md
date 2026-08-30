@@ -21,11 +21,32 @@ docs guessed turned out to exist and be the latest stable — no fallbacks neede
 
 Node 22 in CI (matches local dev container).
 
+## Implementation state (2026-08-30)
+
+Milestones M0, M1a, M1b, M2, M3 and most of M5 are implemented and verified headlessly
+(51 core tests green; full loop driven in Chromium in both stances with no console
+errors; app 149 kB gz, well under the 220 kB target). Notable in-flight decisions:
+
+- **sRGB canvas textures**: procedural CanvasTextures must set
+  `colorSpace = THREE.SRGBColorSpace` or the cloth washes out under ACES — found and
+  fixed during the M2 visual pass.
+- **Ball gloss + contact shadows pulled forward from M4A** (cheap, large realism gain);
+  the full M4A/M4B passes (cushion jaw extrusion, cloth bump tuning, screenshot gates)
+  remain open.
+- **M5 items implemented**: full state machine with locked/reveal/animating phases,
+  kinematic playback with skip + reduced-motion fallback, near-overlap reveal (truth as
+  outline ring + exact gap row at β ≤ 1.5°), result mini-map, streak/stats/level-up
+  heuristic, hold-to-peek with assisted flagging.
+- **M5/M6 items still open**: stats sheet UI (data already collected), settings sheet,
+  tap-to-explain popovers + glossary, onboarding cards, sounds, PWA (vite-plugin-pwa),
+  Playwright smoke test in CI.
+
 ## Open gates that need a human / hardware (cannot be closed by the implementing agent)
 
-- **S1 perceptual spike protocol**: the spike *build* can be served from the deployed app, but
-  the ~50-rep per-stance error measurement and the go/retune/no-go verdict need the developer
-  on both reference devices. Record results here.
+- **S1 perceptual spike protocol**: the deployed app itself now serves as the spike build
+  (both stances, drag + nudge, `?seed=` for a fixed battery) — no separate throwaway
+  needed. The ~50-rep per-stance error measurement and the go/retune/no-go verdict need
+  the developer on both reference devices. Record results here.
 - **M2 feel constants**: 80 px lift offset, 48 px grab radius, hold-repeat timings, 150 ms
   camera damping — implemented at the doc-inherited values; hands-on tuning on both reference
   devices is M2 acceptance, values to be recorded here.

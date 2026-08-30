@@ -1,4 +1,4 @@
-import { reachableArc } from './constraint'
+import { clampToReachable, reachableArc } from './constraint'
 import { standingFrameCheck } from './framecheck'
 import { aimPoint, cutAngle, thetaTrue, trueGhost } from './ghost'
 import { jawWindow } from './score'
@@ -76,7 +76,6 @@ const APPROACH_CAP_CORNER = degToRad(50)
 const APPROACH_CAP_SIDE = degToRad(55)
 const RUNG0_ATTEMPTS = 500
 const RUNG_ATTEMPTS = 200
-const TABLE_L = 2540 // difficulty normalisation constant (§4.10 uses L)
 
 export class GeneratorExhaustedError extends Error {
   constructor(seed: number, level: LevelId) {
@@ -84,7 +83,7 @@ export class GeneratorExhaustedError extends Error {
   }
 }
 
-interface RungParams {
+export interface RungParams {
   cushionClear: number
   dOPMin: number
   dCOMin: number
@@ -93,7 +92,7 @@ interface RungParams {
 }
 
 // Deterministic widening ladder (§4.10). Rung 0 = base constraints.
-function rungParams(rung: number, level: LevelParams): RungParams {
+export function rungParams(rung: number, level: LevelParams): RungParams {
   return {
     cushionClear: rung >= 3 ? 60 : O_CUSHION_CLEAR,
     dOPMin: rung >= 2 ? level.dOP[0] * 0.8 : level.dOP[0],
@@ -216,8 +215,10 @@ function tryAttempt(
   // difficulty_raw = (2.0/Bd)·(1 + φ/90°)·(1 + |C−G|/L), Bd = unclipped jaw window (§4.10).
   const jaw = jawWindow(object, pocketId, table)
   const bd = radToDeg(Math.min(jaw.plus, jaw.minus))
+  // max(bd, 0.05): guard against a division blow-up on degenerate custom configs only —
+  // unreachable for generated shots (the approach caps keep bd well above it).
   const difficultyRaw =
-    (2.0 / Math.max(bd, 0.05)) * (1 + radToDeg(phiTrue) / 90) * (1 + dist(cue, ghost) / TABLE_L)
+    (2.0 / Math.max(bd, 0.05)) * (1 + radToDeg(phiTrue) / 90) * (1 + dist(cue, ghost) / L)
 
   return {
     cue,
@@ -227,4 +228,15 @@ function tryAttempt(
     cutAngleTrue: phiTrue,
     difficultyRaw,
   }
+}
+
+// Spawn angle for a fresh shot (§1 step 2): the straight-through angle (the cue line θC —
+// a full-ball hit) jittered ±15–30°, clamped to the reachable arc. Jitter is relative to
+// the CUE LINE, never the truth, so the spawn carries no information about the answer.
+export function spawnTheta(shot: Shot, table: Table): number {
+  const jitterRng = mulberry32((shot.seed ^ 0xa5a5a5a5) >>> 0)
+  const jitter = degToRad(15 + 15 * jitterRng())
+  const sign = jitterRng() < 0.5 ? -1 : 1
+  const arc = reachableArc(shot.object, shot.cue, table)
+  return clampToReachable(arc.thetaC + sign * jitter, shot.object, shot.cue, table)
 }

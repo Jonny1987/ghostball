@@ -51,6 +51,7 @@ export class Scene3D {
   private cssH = 1
   private state: AppState | null = null
   private activeAnim: { skip: () => void } | null = null
+  private activeAnimTask: Task | null = null
   private lostContext = false
 
   constructor(
@@ -127,7 +128,10 @@ export class Scene3D {
       state.phase === 'result' ||
       state.peeking
     const guessColored = state.phase !== 'aiming'
-    this.balls.sync(state.shot, state.theta, showTruth, guessColored)
+    // during ANIMATING/RESULT the submit animation owns the object ball's transform —
+    // sync must not teleport it back to O or un-hide a potted ball (§2.12)
+    const objectLive = state.phase === 'animating' || state.phase === 'result'
+    this.balls.sync(state.shot, state.theta, showTruth, guessColored, !objectLive)
     this.aids.setTargetPocket(state.shot.pocketId)
 
     if (state.phase === 'aiming' && (shotChanged || (prev && prev.phase !== 'aiming'))) {
@@ -209,14 +213,26 @@ export class Scene3D {
     const to = toWorld(ev.point, r)
     const anim = submitAnimation(this.balls.object, from, to, this.balls.radiusM, result, () => {
       this.activeAnim = null
+      this.activeAnimTask = null
       onDone()
     })
     this.activeAnim = anim
+    this.activeAnimTask = anim.task
     this.addTask(anim.task)
   }
 
   skipAnimation(): void {
     this.activeAnim?.skip()
+  }
+
+  // Remove an in-flight submit animation WITHOUT firing its onDone — used when the shot
+  // is replaced mid-pipeline (next/retry). The next update() restores ball state.
+  cancelAnimation(): void {
+    if (this.activeAnimTask) {
+      this.tasks.delete(this.activeAnimTask)
+      this.activeAnimTask = null
+    }
+    this.activeAnim = null
   }
 
   addTask(task: Task): void {
@@ -246,6 +262,7 @@ export class Scene3D {
     if (this.cam.update(dt)) animating = true
 
     if (!this.lostContext && this.state) {
+      this.balls.syncObjectShadow()
       this.renderer.render(this.scene, this.cam.camera)
       this.inset.render(
         this.renderer,

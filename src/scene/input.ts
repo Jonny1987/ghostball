@@ -2,15 +2,18 @@ import * as THREE from 'three'
 import { degToRad, ghostAt, type Shot, type Table, type Vec2 } from '../core'
 import { BED_Y, MM_TO_M, toCore, toWorld } from './units'
 
-// Pointer input (PLAN.md §2.4/§5). Standing: absolute drag — raycast to the ball-centre
-// plane with an 80 px lift offset (the finger never covers the ball) and a 48 px grab
-// radius. Down: relative horizontal aim-swipe at 0.08°/px (the camera is locked to the aim
-// line there, absolute drag makes no sense). All doc-inherited feel constants live here.
+// Pointer input (PLAN.md §2.4/§5). Standing: absolute drag — the grab captures the
+// finger→ghost screen offset so the ghost never jumps, then a lift of up to 80 px ramps in
+// on touch so the finger ends below the ball instead of covering it; drags start only
+// within the 48 px grab radius. Down: relative horizontal aim-swipe at 0.08°/px (the
+// camera is locked to the aim line there — absolute drag makes no sense). Exactly one
+// pointer (the first primary-button one) owns a gesture; other pointers are ignored.
 
 export const FEEL = {
   liftOffsetPx: 80,
   grabRadiusPx: 48,
   swipeDegPerPx: 0.08,
+  liftRampMs: 250,
 }
 
 export interface InputContext {
@@ -20,7 +23,7 @@ export interface InputContext {
   theta: () => number
   camera: () => THREE.PerspectiveCamera
   onDragPoint: (p: Vec2) => void // standing: table point to project onto the arc
-  onSwipe: (deltaThetaRad: number, screenDxPx: number) => void // down: relative
+  onSwipe: (deltaThetaRad: number) => void // down: relative
 }
 
 export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputContext): void {
@@ -29,15 +32,13 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
   const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeHeight)
   const hit = new THREE.Vector3()
 
+  let activePointer: number | null = null
   let dragging = false
   let lastX = 0
-
-  const ndcFromEvent = (ev: PointerEvent, liftPx: number): { x: number; y: number } => {
-    const rect = canvas.getBoundingClientRect()
-    const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
-    const y = -(((ev.clientY - rect.top - liftPx) / rect.height) * 2 - 1)
-    return { x, y }
-  }
+  let grabOffsetX = 0
+  let grabOffsetY = 0
+  let liftTarget = 0
+  let grabTime = 0
 
   const ghostScreenPx = (): { x: number; y: number } | null => {
     const rect = canvas.getBoundingClientRect()
@@ -48,28 +49,46 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
     return { x: ((ndc.x + 1) / 2) * rect.width, y: ((1 - ndc.y) / 2) * rect.height }
   }
 
-  const castToTable = (ev: PointerEvent, lift: boolean): Vec2 | null => {
-    const liftPx = lift && ev.pointerType === 'touch' ? FEEL.liftOffsetPx : 0
-    const ndc = ndcFromEvent(ev, liftPx)
-    raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), ctx.camera())
+  // Cast a canvas-relative pixel position to the ball-centre plane in table mm.
+  const castToTable = (px: number, py: number): Vec2 | null => {
+    const rect = canvas.getBoundingClientRect()
+    const x = (px / rect.width) * 2 - 1
+    const y = -((py / rect.height) * 2 - 1)
+    raycaster.setFromCamera(new THREE.Vector2(x, y), ctx.camera())
     const point = raycaster.ray.intersectPlane(plane, hit)
     return point ? toCore(point) : null
   }
 
+  const dragTargetPx = (ev: PointerEvent): { x: number; y: number } => {
+    const rect = canvas.getBoundingClientRect()
+    // lift ramps in smoothly after the grab, on touch only (§2.4 feel constants)
+    const ramp = Math.min(1, (performance.now() - grabTime) / FEEL.liftRampMs)
+    return {
+      x: ev.clientX - rect.left + grabOffsetX,
+      y: ev.clientY - rect.top + grabOffsetY - liftTarget * ramp,
+    }
+  }
+
   canvas.addEventListener('pointerdown', (ev) => {
     if (!ctx.aiming()) return
+    if (ev.button !== 0 || ev.isPrimary === false) return
+    if (activePointer !== null) return // one pointer owns the gesture
+    activePointer = ev.pointerId
     canvas.setPointerCapture(ev.pointerId)
     lastX = ev.clientX
+
     if (ctx.stance() === 'standing') {
       const gp = ghostScreenPx()
       const rect = canvas.getBoundingClientRect()
       const px = ev.clientX - rect.left
       const py = ev.clientY - rect.top
-      const near = gp !== null && Math.hypot(px - gp.x, py - gp.y) <= FEEL.grabRadiusPx * 1.0
-      if (near) {
+      if (gp !== null && Math.hypot(px - gp.x, py - gp.y) <= FEEL.grabRadiusPx) {
         dragging = true
-        const p = castToTable(ev, true)
-        if (p) ctx.onDragPoint(p)
+        grabTime = performance.now()
+        // capture the finger→ghost offset so the grab itself never moves the ghost
+        grabOffsetX = gp.x - px
+        grabOffsetY = gp.y - py
+        liftTarget = ev.pointerType === 'touch' ? FEEL.liftOffsetPx : 0
       }
     } else {
       dragging = true // down stance: swipe from anywhere
@@ -77,18 +96,21 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
   })
 
   canvas.addEventListener('pointermove', (ev) => {
-    if (!dragging || !ctx.aiming()) return
+    if (ev.pointerId !== activePointer || !dragging || !ctx.aiming()) return
     if (ctx.stance() === 'standing') {
-      const p = castToTable(ev, true)
+      const t = dragTargetPx(ev)
+      const p = castToTable(t.x, t.y)
       if (p) ctx.onDragPoint(p)
     } else {
       const dx = ev.clientX - lastX
       lastX = ev.clientX
-      if (dx !== 0) ctx.onSwipe(degToRad(FEEL.swipeDegPerPx) * dx, dx)
+      if (dx !== 0) ctx.onSwipe(degToRad(FEEL.swipeDegPerPx) * dx)
     }
   })
 
   const stop = (ev: PointerEvent): void => {
+    if (ev.pointerId !== activePointer) return
+    activePointer = null
     dragging = false
     try {
       canvas.releasePointerCapture(ev.pointerId)

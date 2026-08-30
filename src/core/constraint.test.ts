@@ -43,26 +43,30 @@ describe('constraint circle and projection', () => {
 })
 
 describe('ψ = Δ boundary suite (the condition the research docs disagreed on)', () => {
+  const farO = vec(400, 600)
   const cases = [
-    { name: 'near cue (D = 2r + 10 mm)', C: vec(O.x + 2 * r + 10, O.y) },
-    { name: 'mid cue (D = 900 mm)', C: vec(O.x + 900, O.y) },
-    { name: 'far cue (D = 2000 mm… clamped in-bounds)', C: vec(O.x + 1400, O.y) },
+    { name: 'near cue (D = 2r + 10 mm)', O, C: vec(O.x + 2 * r + 10, O.y) },
+    { name: 'mid cue (D = 900 mm)', O, C: vec(O.x + 900, O.y) },
+    { name: 'far cue (D = 2000 mm)', O: farO, C: vec(farO.x + 2000, farO.y) },
   ]
   const eps = degToRad(0.01)
 
-  for (const { name, C } of cases) {
+  for (const { name, O: caseO, C } of cases) {
     it(`${name}: Δ−ε reachable, Δ+ε clamped, both arc ends`, () => {
-      const arc = reachableArc(O, C, T)
+      const arc = reachableArc(caseO, C, T)
       expect(arc.halfWidth).toBeGreaterThan(0)
       for (const side of [1, -1]) {
         const inside = arc.thetaC + side * (arc.halfWidth - eps)
         const outside = arc.thetaC + side * (arc.halfWidth + eps)
-        expect(clampToReachable(inside, O, C, T)).toBeCloseTo(inside, 6)
-        expect(clampToReachable(outside, O, C, T)).toBeCloseTo(arc.thetaC + side * arc.halfWidth, 6)
+        expect(clampToReachable(inside, caseO, C, T)).toBeCloseTo(inside, 6)
+        expect(clampToReachable(outside, caseO, C, T)).toBeCloseTo(
+          arc.thetaC + side * arc.halfWidth,
+          6,
+        )
       }
       // exactly Δ is handled consistently (stays at the limit)
       const atLimit = arc.thetaC + arc.halfWidth
-      expect(clampToReachable(atLimit, O, C, T)).toBeCloseTo(atLimit, 6)
+      expect(clampToReachable(atLimit, caseO, C, T)).toBeCloseTo(atLimit, 6)
     })
   }
 

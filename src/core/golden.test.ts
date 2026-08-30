@@ -3,7 +3,7 @@ import { clampToReachable, ghostAt, placeFromDrag, reachableArc } from './constr
 import { cutAngle, departureDir, thetaTrue, trueGhost } from './ghost'
 import { allowedWindow, computeResult, contactFullness, jawWindow } from './score'
 import { missMetrics, raySegment, simulate } from './simulate'
-import { DEFAULT_TABLE } from './table'
+import { buildTable, DEFAULT_TABLE } from './table'
 import { degToRad, dist, dot, radToDeg, sub, unit, vec } from './vec'
 
 // Golden test vectors — PLAN.md §4.11. Fixtures tolerance ±0.02 mm/° unless noted.
@@ -26,7 +26,7 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
   })
 
   it('vector 1: true ghost, θ_true, d̂_true', () => {
-    expect(dist(O, P0.m)).toBeCloseTo(665.17, 1)
+    expect(Math.abs(dist(O, P0.m) - 665.17)).toBeLessThanOrEqual(0.02)
     const G = trueGhost(O, P0, cfg)
     expect(G.x).toBeCloseTo(648.079, 2)
     expect(G.y).toBeCloseTo(430.896, 2)
@@ -50,7 +50,7 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
   it('vector 3: cut angle with §4.6 identity cross-check', () => {
     const G = trueGhost(O, P0, cfg)
     const phi = cutAngle(C, G, O)
-    expect(radToDeg(phi)).toBeCloseTo(34.8, 1)
+    expect(Math.abs(radToDeg(phi) - 34.8)).toBeLessThanOrEqual(0.02)
     // cos φ = (D·cos ψ − 2r)/√(D² + 4r² − 4rD·cos ψ), ψ = 32.73°, D = 900 (§4.6)
     const psi = thetaTrue(O, G) // θC = 0 here so ψ = θ_true
     const D = 900
@@ -62,8 +62,8 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
 
   it('vector 4: jaw-subtended window ±', () => {
     const jaw = jawWindow(O, 0, T)
-    expect(radToDeg(jaw.plus)).toBeCloseTo(2.85, 1)
-    expect(radToDeg(jaw.minus)).toBeCloseTo(2.8, 1)
+    expect(Math.abs(radToDeg(jaw.plus) - 2.85)).toBeLessThanOrEqual(0.02)
+    expect(Math.abs(radToDeg(jaw.minus) - 2.8)).toBeLessThanOrEqual(0.02)
     // small-angle sanity: ≈ (w_eff/|M−O|)·cos α
     const alpha = degToRad(12.28)
     const approx = radToDeg((P0.wEff / dist(O, P0.m)) * Math.cos(alpha))
@@ -78,19 +78,19 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
 
     const res = computeResult({ thetaUser, cue: C, object: O, targetPocketId: 0 }, T)
     expect(Math.abs(res.thetaErrorDeg - 2.27)).toBeLessThanOrEqual(0.02)
-    expect(res.arcErrorMm).toBeCloseTo(2.26, 1)
-    expect(res.contactErrorMm).toBeCloseTo(1.13, 1)
+    expect(Math.abs(res.arcErrorMm - 2.26)).toBeLessThanOrEqual(0.02)
+    expect(Math.abs(res.contactErrorMm - 1.13)).toBeLessThanOrEqual(0.02)
     expect(res.potted).toBe(true)
     expect(res.outcome).toBe('target_pocket')
-    expect(res.mouthOffsetMm).toBeCloseTo(26.82, 1)
-    expect(res.marginMm).toBeCloseTo(6.75, 1)
-    expect(res.cutAngleUserDeg).toBeCloseTo(37.2, 1)
+    expect(Math.abs((res.mouthOffsetMm ?? 0) - 26.82)).toBeLessThanOrEqual(0.02)
+    expect(Math.abs((res.marginMm ?? 0) - 6.75)).toBeLessThanOrEqual(0.02)
+    expect(Math.abs(res.cutAngleUserDeg - 37.2)).toBeLessThanOrEqual(0.02)
     expect(res.overcut).toBe(true)
     expect(res.contactFullness).toBeCloseTo(0.395, 2)
     expect(res.band).toBe('good')
     // Window fields ±0.05° here: the E1 edge ray clears the cushion span by ~0.05 mm (§4.11).
-    expect(res.windowPlusDeg).toBeCloseTo(2.85, 1)
-    expect(res.windowMinusDeg).toBeCloseTo(2.8, 1)
+    expect(Math.abs(res.windowPlusDeg - 2.85)).toBeLessThanOrEqual(0.05)
+    expect(Math.abs(res.windowMinusDeg - 2.8)).toBeLessThanOrEqual(0.05)
     expect(res.windowClipped).toBe(false)
   })
 
@@ -100,7 +100,7 @@ describe('§4.11 golden vectors — pocket 0 geometry', () => {
     const sim = simulate(degToRad(35), O, 0, T)
     expect(sim.outcome).toBe('target_pocket')
     expect(sim.event?.kind).toBe('pot')
-    expect(sim.event?.t).toBeCloseTo(660.0, 0)
+    expect(Math.abs((sim.event?.t ?? 0) - 660.0)).toBeLessThanOrEqual(0.05)
   })
 
   it('vector 6: nudge step arc lengths', () => {
@@ -182,7 +182,7 @@ describe('§4.11 vectors 7–10 — degeneracies and event-model regressions', (
     const obj = vec(1270, 400)
     const sim = simulate(degToRad(90), obj, 1, T) // ê = (0,1) ⇒ d̂ = (0,−1)
     expect(sim.outcome).toBe('target_pocket')
-    expect(sim.event?.t).toBeCloseTo(400, 1)
+    expect(Math.abs((sim.event?.t ?? 0) - 400)).toBeLessThanOrEqual(0.02)
     expect(sim.event?.mouthOffsetMm).toBeCloseTo(0, 3)
     expect(sim.event?.marginMm).toBeCloseTo(39.925, 2)
   })
@@ -234,5 +234,92 @@ describe('unit-circle helper sanity', () => {
     const d = departureDir(O, U)
     expect(d.x).toBeCloseTo(-e.x, 9)
     expect(d.y).toBeCloseTo(-e.y, 9)
+  })
+})
+
+describe('event-model tests added by the adversarial review', () => {
+  it('approach-angle cap is DECISIVE: a 70° hit inside the capture segment rattles, and pots only if the cap is raised', () => {
+    // Ray at α = 70° whose mouth crossing lands INSIDE pocket 1's capture segment
+    // (x ≈ 1288.5 ∈ [1230.1, 1309.9]) and whose y=r crossing lands in the mouth gap
+    // (x ≈ 1210.1) — so the ONLY thing standing between this shot and a pot is the cap.
+    // (Deleting the cap check previously left the whole suite green — mutation caught.)
+    const d = { x: Math.sin(degToRad(70)), y: -Math.cos(degToRad(70)) }
+    const obj = vec(1288.5 - (d.x / -d.y) * 300, 300)
+    const theta = Math.atan2(-d.y, -d.x)
+
+    const capped = simulate(theta, obj, 1, T)
+    expect(capped.outcome).toBe('cushion')
+    expect(capped.detail).toBe('rattled')
+    expect(capped.pocketId).toBe(1)
+
+    // identical geometry with alphaMax = 80°: capture valid, gap crossing ignored → pot
+    const laxTable = buildTable({ ...cfg, alphaMaxRad: degToRad(80) })
+    const lax = simulate(theta, obj, 1, laxTable)
+    expect(lax.outcome).toBe('target_pocket')
+  })
+
+  it('min-t rattle at a side jaw preempts a valid pot at a far corner (§4.8 motivating case)', () => {
+    // Nearly-horizontal ray: crosses y=r at x = 1215 (pocket 1 gap, outside its capture
+    // segment) then goes on to hit pocket 2's capture segment at a legal 45°-ish approach.
+    const pk2 = T.pockets[2]
+    if (!pk2) throw new Error('pocket 2 missing')
+    const b = {
+      x: pk2.e2.x + 0.2 * (pk2.e1.x - pk2.e2.x),
+      y: pk2.e2.y + 0.2 * (pk2.e1.y - pk2.e2.y),
+    }
+    const a = vec(1215, cfg.ballRadiusMm)
+    const slope = (b.y - a.y) / (b.x - a.x)
+    const objectBall = vec(300, a.y - slope * (a.x - 300)) // on the A→B line at x = 300
+    const dir = { x: b.x - objectBall.x, y: b.y - objectBall.y }
+    const theta = Math.atan2(-dir.y, -dir.x)
+
+    // the rattle must decide the outcome for ANY target pocket
+    for (const target of [1, 2]) {
+      const sim = simulate(theta, objectBall, target, T)
+      expect(sim.outcome).toBe('cushion')
+      expect(sim.detail).toBe('rattled')
+      expect(sim.pocketId).toBe(1)
+    }
+  })
+
+  it('straight-in collinearity (§7 item 2): C, O, aim point collinear ⇒ φ=0, θ_true=θC, full ball, pot', () => {
+    const pk1 = T.pockets[1]
+    if (!pk1) throw new Error('pocket 1 missing')
+    const obj = vec(1270, 500)
+    const cue = vec(1270, 900) // straight above O toward pocket 1 at (1270, 0)
+    const G = trueGhost(obj, pk1, cfg)
+    expect(G.x).toBeCloseTo(1270, 9)
+    expect(G.y).toBeCloseTo(500 + 2 * cfg.ballRadiusMm, 9)
+    const tTrue = thetaTrue(obj, G)
+    const arc = reachableArc(obj, cue, T)
+    expect(Math.abs(radToDeg(tTrue - arc.thetaC))).toBeLessThanOrEqual(1e-9)
+    const res = computeResult({ thetaUser: tTrue, cue, object: obj, targetPocketId: 1 }, T)
+    expect(res.cutAngleTrueDeg).toBeCloseTo(0, 6)
+    expect(res.contactFullness).toBeCloseTo(1, 6)
+    expect(res.potted).toBe(true)
+    expect(res.thetaErrorDeg).toBeCloseTo(0, 9)
+  })
+
+  it('|G−O| ≡ 2r to 1e-12 for trueGhost across positions and pockets (§7 item 2)', () => {
+    for (const pk of T.pockets) {
+      for (let i = 0; i < 20; i++) {
+        const obj = vec(200 + ((i * 97) % 2100), 150 + ((i * 271) % 950))
+        const G = trueGhost(obj, pk, cfg)
+        expect(Math.abs(dist(G, obj) - 2 * cfg.ballRadiusMm)).toBeLessThanOrEqual(1e-12 * 57.15)
+      }
+    }
+  })
+
+  it('missMetrics sign convention matches the pot event: + is toward E1 (§4.8)', () => {
+    // From vector 5 the pot at θ = 35° has u = +26.82 (toward E1). Rotating further the
+    // same way must produce a MISS on the E1 side: mouthOffset > w_eff, missMm > 0.
+    const missPlus = missMetrics(degToRad(35 + 3), O, 0, T)
+    expect(missPlus.wrongDirection).toBe(false)
+    expect(missPlus.mouthOffsetMm ?? 0).toBeGreaterThan(P0.wEff)
+    expect(missPlus.missMm ?? 0).toBeCloseTo((missPlus.mouthOffsetMm ?? 0) - P0.wEff, 9)
+    // and rotating the other way past the window misses on the E2 side: offset negative
+    const missMinus = missMetrics(degToRad(32.73 - 4), O, 0, T)
+    expect(missMinus.mouthOffsetMm ?? 0).toBeLessThan(-P0.wEff)
+    expect(missMinus.missMm ?? 0).toBeCloseTo(Math.abs(missMinus.mouthOffsetMm ?? 0) - P0.wEff, 9)
   })
 })
