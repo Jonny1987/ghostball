@@ -71,6 +71,10 @@ export function buildFeedback(container: HTMLElement): FeedbackPanel {
       } else if (result.missMm !== null && result.missMm > 0) {
         row('missed by', `${result.missMm.toFixed(1)} mm`)
       }
+      if (result.thetaErrorDeg <= 1.5) {
+        // near-overlap: the truth renders as an outline ring; the exact gap lives here (§5)
+        row('gap to perfect', `${result.chordErrorMm.toFixed(2)} mm (truth = cyan ring)`)
+      }
       root.append(rows)
 
       const windowLine = document.createElement('div')

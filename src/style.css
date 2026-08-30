@@ -14,6 +14,7 @@
 }
 
 [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat display:flex on .result-panel */
   display: none !important;
 }
 
@@ -347,4 +348,51 @@ body {
   .arrow-btn.bump {
     animation: none;
   }
+}
+
+/* ---------- Chevron + debug + inset ---------- */
+
+.chevron {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.chevron-arrow {
+  font-size: 26px;
+  color: var(--accent);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+.chevron-label {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--pill-bg);
+  border-radius: 8px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.debug-topdown {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 60px);
+  right: 8px;
+  width: 40vw;
+  height: 22vw;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.mini-map {
+  width: 100%;
+  height: auto;
+  background: #0b0d10;
 }

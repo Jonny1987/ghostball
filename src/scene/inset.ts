@@ -1,0 +1,47 @@
+import * as THREE from 'three'
+import { ghostAt, type Shot, type Table } from '../core'
+import { toWorld } from './units'
+
+// Contact-zoom inset (PLAN.md §2.6): a picture-in-picture second render pass at narrow FOV
+// aimed at the ghost/object contact region — the designed carrier of fine-step feedback.
+// One 0.25° step ≈ 0.74 device px here (§2.6's stated convention).
+
+const INSET_FOV = 5
+const INSET_FRACTION = 0.4 // of canvas width
+
+export class ContactInset {
+  private camera = new THREE.PerspectiveCamera(INSET_FOV, 1, 0.05, 30)
+  visible = false
+
+  render(
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    mainCamera: THREE.PerspectiveCamera,
+    shot: Shot,
+    theta: number,
+    table: Table,
+  ): void {
+    if (!this.visible) return
+    const size = renderer.getSize(new THREE.Vector2())
+    const px = Math.round(size.x * INSET_FRACTION)
+    const margin = Math.round(size.x * 0.03)
+
+    // contact point = midpoint of ghost and object centres
+    const r = table.cfg.ballRadiusMm
+    const u = ghostAt(theta, shot.object, r)
+    const contact = toWorld({ x: (u.x + shot.object.x) / 2, y: (u.y + shot.object.y) / 2 }, r)
+
+    this.camera.position.copy(mainCamera.position)
+    this.camera.fov = INSET_FOV
+    this.camera.aspect = 1
+    this.camera.lookAt(contact)
+    this.camera.updateProjectionMatrix()
+
+    renderer.setScissorTest(true)
+    renderer.setViewport(margin, margin, px, px)
+    renderer.setScissor(margin, margin, px, px)
+    renderer.render(scene, this.camera)
+    renderer.setScissorTest(false)
+    renderer.setViewport(0, 0, size.x, size.y)
+  }
+}

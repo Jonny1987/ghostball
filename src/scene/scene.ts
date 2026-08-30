@@ -1,0 +1,276 @@
+import * as THREE from 'three'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import type { FullResult, Shot, Table, Vec2 } from '../core'
+import { ghostAt } from '../core'
+import type { AppState, Stance } from '../ui/store'
+import { Aids } from './aids'
+import { submitAnimation, type Task } from './animate'
+import { assertCrossProjection } from './assertions'
+import { Balls } from './balls'
+import { buildScene } from './buildScene'
+import {
+  chipTangentScreenX,
+  DampedCamera,
+  type DownRig,
+  downPose,
+  pickDownRig,
+  standingPose,
+} from './cameras'
+import { PocketChevron } from './chevron'
+import { bindInput } from './input'
+import { ContactInset } from './inset'
+import { BED_Y, MM_TO_M, toWorld } from './units'
+
+// Scene orchestrator (PLAN.md §3): owns the renderer, the render-on-demand loop (§2.1 —
+// zero idle rAF; the loop runs only while dirty or animating), cameras, and all scene
+// objects. It is a projection of store state; it never owns game state.
+
+export interface SceneCallbacks {
+  onDragPoint: (p: Vec2) => void
+  onSwipe: (deltaThetaRad: number) => void
+}
+
+const STANCE_TRANSITION_S = 0.4
+const DOWN_FOLLOW_TAU_S = 0.15
+
+export class Scene3D {
+  private renderer: THREE.WebGLRenderer
+  private scene: THREE.Scene
+  private balls: Balls
+  private aids: Aids
+  private cam: DampedCamera
+  private inset = new ContactInset()
+  private chevron: PocketChevron
+  private downRig: DownRig
+  private cueStick: THREE.Mesh
+  private tasks = new Set<Task>()
+  private dirty = true
+  private running = false
+  private lastTime = 0
+  private cssW = 1
+  private cssH = 1
+  private state: AppState | null = null
+  private activeAnim: { skip: () => void } | null = null
+  private lostContext = false
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    chevronContainer: HTMLElement,
+    private table: Table,
+    cb: SceneCallbacks,
+  ) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.0
+    this.scene = buildScene(table)
+
+    // IBL: PMREM'd RoomEnvironment gives the phenolic balls something to reflect (§2.1)
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    this.scene.environmentIntensity = 0.2
+
+    this.balls = new Balls(this.scene, table)
+    this.aids = new Aids(this.scene, table)
+    this.cam = new DampedCamera(1)
+    this.chevron = new PocketChevron(chevronContainer)
+    this.downRig = pickDownRig()
+
+    // simple tapered cue stick, shown in the down stance (§5, toggleable)
+    const stick = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.006, 0.013, 1.45, 12),
+      new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.5 }),
+    )
+    stick.visible = false
+    this.cueStick = stick
+    this.scene.add(stick)
+
+    bindInput(canvas, table, {
+      stance: () => this.state?.stance ?? 'standing',
+      aiming: () => this.state?.phase === 'aiming',
+      shot: () => (this.state as AppState).shot,
+      theta: () => (this.state as AppState).theta,
+      camera: () => this.cam.camera,
+      onDragPoint: cb.onDragPoint,
+      onSwipe: (dTheta) => cb.onSwipe(dTheta),
+    })
+
+    canvas.addEventListener('webglcontextlost', (ev) => {
+      ev.preventDefault()
+      this.lostContext = true
+    })
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.lostContext = false
+      this.invalidate()
+    })
+  }
+
+  resize(cssW: number, cssH: number, dpr: number): void {
+    this.cssW = cssW
+    this.cssH = cssH
+    this.renderer.setPixelRatio(Math.min(dpr, 2))
+    this.renderer.setSize(cssW, cssH, true)
+    this.cam.setAspect(cssW / cssH)
+    if (this.state) this.applyCamera(this.state, true)
+    this.invalidate()
+  }
+
+  // React to store changes; snap=true skips damping (first shot, resize, next shot).
+  update(state: AppState, prev: AppState | null): void {
+    const shotChanged = !prev || prev.shot !== state.shot
+    const thetaChanged = !prev || prev.theta !== state.theta
+    const stanceChanged = !prev || prev.stance !== state.stance
+    this.state = state
+
+    const showTruth =
+      state.phase === 'reveal' ||
+      state.phase === 'animating' ||
+      state.phase === 'result' ||
+      state.peeking
+    const guessColored = state.phase !== 'aiming'
+    this.balls.sync(state.shot, state.theta, showTruth, guessColored)
+    this.aids.setTargetPocket(state.shot.pocketId)
+
+    if (state.phase === 'aiming' && (shotChanged || (prev && prev.phase !== 'aiming'))) {
+      this.aids.hideResultLines()
+      this.balls.object.visible = true
+      this.balls.object.scale.setScalar(1)
+    }
+
+    if (shotChanged) {
+      this.applyCamera(state, true)
+    } else if (stanceChanged) {
+      this.applyCamera(state, false, STANCE_TRANSITION_S)
+    } else if (thetaChanged && state.stance === 'down') {
+      this.applyCamera(state, false, DOWN_FOLLOW_TAU_S)
+    }
+
+    // inset shows while aiming in the down stance (§2.6; settings can force on/off)
+    const insetSetting = state.settings.inset
+    this.inset.visible =
+      state.phase === 'aiming' &&
+      (insetSetting === 'on' || (insetSetting === 'auto' && state.stance === 'down'))
+
+    this.cueStick.visible =
+      state.settings.cueStick && state.stance === 'down' && state.phase === 'aiming'
+    if (this.cueStick.visible) this.placeCueStick(state)
+
+    this.invalidate()
+  }
+
+  private placeCueStick(state: AppState): void {
+    const r = this.table.cfg.ballRadiusMm
+    const u = ghostAt(state.theta, state.shot.object, r)
+    const cueW = toWorld(state.shot.cue, r)
+    const uW = toWorld(u, r)
+    const dir = uW.clone().sub(cueW).setY(0).normalize()
+    const buttDrop = 0.05
+    const mid = cueW
+      .clone()
+      .addScaledVector(dir, -(0.05 + 1.45 / 2))
+      .setY(BED_Y + r * MM_TO_M + buttDrop / 2)
+    this.cueStick.position.copy(mid)
+    this.cueStick.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      dir
+        .clone()
+        .add(new THREE.Vector3(0, buttDrop, 0))
+        .normalize(),
+    )
+  }
+
+  private applyCamera(state: AppState, snap: boolean, tau = STANCE_TRANSITION_S): void {
+    const aspect = this.cssW / Math.max(1, this.cssH)
+    const pose =
+      state.stance === 'standing'
+        ? standingPose(state.shot, this.table, aspect)
+        : downPose(state.shot, state.theta, this.table, this.downRig)
+    if (snap) this.cam.snapTo(pose)
+    else this.cam.moveTo(pose, tau)
+    this.invalidate()
+  }
+
+  nudgeTangentScreenX(theta: number): number {
+    if (!this.state) return 1
+    return chipTangentScreenX(this.cam.camera, this.state.shot, theta, this.table, this.cssW)
+  }
+
+  // Kinematic submit playback (M5 flow). onDone fires when the roll (or skip) completes.
+  runSubmit(result: FullResult, reducedMotion: boolean, onDone: () => void): void {
+    const ev = result.sim.event
+    if (!ev || reducedMotion) {
+      if (this.state) this.aids.showResultLines(this.state.shot, this.state.theta, result)
+      onDone()
+      return
+    }
+    const state = this.state as AppState
+    this.aids.showResultLines(state.shot, state.theta, result)
+    const r = this.table.cfg.ballRadiusMm
+    const from = toWorld(state.shot.object, r)
+    const to = toWorld(ev.point, r)
+    const anim = submitAnimation(this.balls.object, from, to, this.balls.radiusM, result, () => {
+      this.activeAnim = null
+      onDone()
+    })
+    this.activeAnim = anim
+    this.addTask(anim.task)
+  }
+
+  skipAnimation(): void {
+    this.activeAnim?.skip()
+  }
+
+  addTask(task: Task): void {
+    this.tasks.add(task)
+    this.invalidate()
+  }
+
+  invalidate(): void {
+    this.dirty = true
+    if (!this.running) {
+      this.running = true
+      this.lastTime = performance.now()
+      requestAnimationFrame(this.loop)
+    }
+  }
+
+  private loop = (now: number): void => {
+    const dt = Math.min(0.05, (now - this.lastTime) / 1000)
+    this.lastTime = now
+    this.dirty = false // consumed by this frame; a mid-frame invalidate() re-arms it
+
+    let animating = false
+    for (const task of [...this.tasks]) {
+      if (!task(dt)) this.tasks.delete(task)
+      else animating = true
+    }
+    if (this.cam.update(dt)) animating = true
+
+    if (!this.lostContext && this.state) {
+      this.renderer.render(this.scene, this.cam.camera)
+      this.inset.render(
+        this.renderer,
+        this.scene,
+        this.cam.camera,
+        this.state.shot,
+        this.state.theta,
+        this.table,
+      )
+      this.chevron.update(this.cam.camera, this.state.shot, this.table, this.cssW, this.cssH)
+      assertCrossProjection(this.balls.ghost, this.state.shot, this.state.theta, this.table)
+    }
+
+    if (animating || this.dirty) {
+      requestAnimationFrame(this.loop)
+    } else {
+      this.running = false // zero idle rAF (§2.1)
+    }
+  }
+
+  currentStance(): Stance {
+    return this.state?.stance ?? 'standing'
+  }
+
+  shotForDebug(): Shot | null {
+    return this.state?.shot ?? null
+  }
+}
