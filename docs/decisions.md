@@ -88,6 +88,17 @@ ghost-follow tau (0.15 s). Retired with the absolute drag: the 48 px grab radius
 feel-constants tuning gate below shrinks accordingly (only hold-repeat timings and the
 follow tau remain to be hand-tuned).
 
+**v2.4 (2026-08-31, user decision):** the standing view must also show the CUE BALL and
+the cue. The cue ball (full extents) joins the standing fit's required points, so the
+composition reads like standing at the real table: your ball and cue at the bottom,
+ghost mid-frame, pocket up top. Because the eye looks steeply down at the cue ball, the
+vertical span grows — the required points now occupy the middle 76 % of the screen
+height (`vPadFrac` 0.12 top and bottom, so the pocket clears the stance pill and the cue
+ball clears the submit bar) and `maxVFovDeg` rises 70 → 74. Close shots still zoom
+right in (the fit is unchanged in spirit — this only adds required content); long shots
+settle around 50–60° vertical FOV. The cue stick now renders while aiming in BOTH
+stances. GENERATOR_VERSION → 5 (frameability check 6 got stricter).
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)
@@ -116,9 +127,10 @@ errors; app 149 kB gz, well under the 220 kB target). Notable in-flight decision
   (both stances, drag + nudge, `?seed=` for a fixed battery) — no separate throwaway
   needed. The ~50-rep per-stance error measurement and the go/retune/no-go verdict need
   the developer on both reference devices. Record results here.
-- **M2 feel constants**: 80 px lift offset, 48 px grab radius, hold-repeat timings, 150 ms
-  camera damping — implemented at the doc-inherited values; hands-on tuning on both reference
-  devices is M2 acceptance, values to be recorded here.
+- **M2 feel constants**: hold-repeat timings, 0.15 mm/px swipe sensitivity, 150 ms
+  camera-follow damping — implemented at the doc-inherited values; hands-on tuning on both
+  reference devices is M2 acceptance, values to be recorded here. (The 80 px lift offset
+  and 48 px grab radius were retired with the absolute drag in v2.3.)
 - **M3 camera A/B**: D1/D2/D3 presets are implemented and switchable (`?rig=d1|d2|d3`);
   the blind 6-shot battery on both devices decides the default. D3 is the provisional default.
 - **M5 verdict calibration**: pocketSlopMm / alphaMax / aimDepth knobs are config; the

@@ -3,10 +3,9 @@ import type { Table } from './types'
 import { normalize, radToDeg, scale, sub, type Vec2 } from './vec'
 
 // V2 zoom framing (docs/decisions.md): the standing view zooms in as far as possible
-// while keeping the TARGET POCKET and the OBJECT BALL'S PLACEMENT REGION fully visible
-// (the whole disc the ghost can be dragged over, plus a slight margin). The cue ball no
-// longer needs to be in frame — the camera sits on the cue line, so the perspective
-// itself carries the shooting direction.
+// while keeping the TARGET POCKET, the OBJECT BALL'S PLACEMENT REGION and (v2.4) the
+// CUE BALL fully visible — the shooter sees their own ball and cue at the bottom of the
+// frame, the ghost mid-frame and the pocket up top, like standing at the real table.
 //
 // This module is pure math shared by BOTH the generator's frameability check (canonical
 // eye + reference aspect, so ?seed= stays device-independent) and the runtime camera
@@ -17,8 +16,11 @@ export const STANDING_RIG = {
   eyeHeightMm: 1620, // above the bed
   refAspect: 390 / 844, // reference viewport (portrait) for the generation-time check
   minVFovDeg: 10, // max zoom-in
-  maxVFovDeg: 70, // beyond this the view distorts; unfittable shots are rejected
+  maxVFovDeg: 74, // beyond this the view distorts; unfittable shots are rejected
   fitMargin: 1.12, // slight margin around the required region
+  // fraction of the screen height reserved top AND bottom so required points clear the
+  // HUD (stance pill up top, submit bar at the bottom where the cue ball now sits)
+  vPadFrac: 0.12,
 }
 
 interface Vec3 {
@@ -49,9 +51,10 @@ export interface StandingFit {
   fits: boolean // neededVFovDeg ≤ maxVFovDeg
 }
 
-// Points the standing view must frame: the target pocket mouth and the full placement
-// region around O (ghost fully visible even at the max allowed misplacement).
-function requiredPoints(object: Vec2, pocketId: number, table: Table): Vec3[] {
+// Points the standing view must frame: the target pocket mouth, the full placement
+// region around O (ghost fully visible even at the max allowed misplacement), and
+// (v2.4) the cue ball with its full extents.
+function requiredPoints(cue: Vec2, object: Vec2, pocketId: number, table: Table): Vec3[] {
   const r = table.cfg.ballRadiusMm
   const pts: Vec3[] = [{ x: object.x, y: object.y, z: r }]
   const pk = table.pockets[pocketId]
@@ -68,6 +71,9 @@ function requiredPoints(object: Vec2, pocketId: number, table: Table): Vec3[] {
     pts.push({ x, y, z: 0 })
     pts.push({ x, y, z: 2 * r }) // ball top — the ghost must be FULLY visible
   }
+  pts.push({ x: cue.x, y: cue.y, z: 0 }, { x: cue.x, y: cue.y, z: 2 * r })
+  pts.push({ x: cue.x + r, y: cue.y, z: r }, { x: cue.x - r, y: cue.y, z: r })
+  pts.push({ x: cue.x, y: cue.y + r, z: r }, { x: cue.x, y: cue.y - r, z: r })
   return pts
 }
 
@@ -91,7 +97,7 @@ export function fitStandingZoom(
   const dir = normalize(sub(object, cue))
   const back = scale(dir, -STANDING_RIG.backMm)
   const eye: Vec3 = { x: cue.x + back.x, y: cue.y + back.y, z: STANDING_RIG.eyeHeightMm }
-  const pts = requiredPoints(object, pocketId, table)
+  const pts = requiredPoints(cue, object, pocketId, table)
 
   let forward = norm3(sub3({ x: object.x, y: object.y, z: r }, eye))
   const worldUp: Vec3 = { x: 0, y: 0, z: 1 }
@@ -123,7 +129,9 @@ export function fitStandingZoom(
     }
     const ghostSlack = maxCenterDistMm(r) / zO
     tanH = (tanHMax + ghostSlack) * fitMargin
-    tanV = ((yMax - yMin) / 2) * fitMargin
+    // vertical band pad: content occupies the middle (1 − 2·vPadFrac) of the screen so
+    // the pocket clears the stance pill and the cue ball clears the submit bar (v2.4)
+    tanV = (((yMax - yMin) / 2) * fitMargin) / (1 - 2 * STANDING_RIG.vPadFrac)
     forward = norm3(add3(forward, add3(scale3(right, xO), scale3(up, (yMin + yMax) / 2))))
   }
 

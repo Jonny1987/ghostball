@@ -74,7 +74,7 @@ export class Scene3D {
     this.chevron = new PocketChevron(chevronContainer)
     this.downRig = pickDownRig()
 
-    // simple tapered cue stick, shown in the down stance (§5, toggleable)
+    // simple tapered cue stick, shown while aiming in both stances (§5, toggleable)
     const stick = new THREE.Mesh(
       new THREE.CylinderGeometry(0.006, 0.013, 1.45, 12),
       new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.5 }),
@@ -149,8 +149,9 @@ export class Scene3D {
       state.phase === 'aiming' &&
       (insetSetting === 'on' || (insetSetting === 'auto' && state.stance === 'down'))
 
-    this.cueStick.visible =
-      state.settings.cueStick && state.stance === 'down' && state.phase === 'aiming'
+    // v2.4: the cue shows in BOTH stances while aiming — the standing view now frames
+    // the cue ball, so the shooter sees their cue addressing it exactly as when down
+    this.cueStick.visible = state.settings.cueStick && state.phase === 'aiming'
     if (this.cueStick.visible) this.placeCueStick(state)
 
     this.invalidate()

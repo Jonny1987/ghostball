@@ -203,6 +203,17 @@ describe('v2.2 standing framing: the ghost itself is centred, the zoom never bre
             expect(Math.abs(t.x)).toBeLessThanOrEqual(halfV * aspect + 1e-6)
             expect(Math.abs(t.y)).toBeLessThanOrEqual(halfV + 1e-6)
           }
+          // (d) the cue ball stays fully inside the frame too (v2.4)
+          for (const cp of [
+            { x: s.cue.x, y: s.cue.y, z: 0 },
+            { x: s.cue.x, y: s.cue.y, z: 2 * r },
+            { x: s.cue.x + r, y: s.cue.y, z: r },
+            { x: s.cue.x - r, y: s.cue.y, z: r },
+          ]) {
+            const t = proj(cp)
+            expect(Math.abs(t.x)).toBeLessThanOrEqual(halfV * aspect + 1e-6)
+            expect(Math.abs(t.y)).toBeLessThanOrEqual(halfV + 1e-6)
+          }
         }
       }
     }
