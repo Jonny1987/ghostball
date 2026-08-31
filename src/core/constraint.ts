@@ -6,6 +6,7 @@ import {
   degToRad,
   EPS,
   len,
+  normalize,
   scale,
   sub,
   unit,
@@ -147,3 +148,68 @@ export function nudgePos(pos: Vec2, delta: Vec2, object: Vec2, table: Table): Nu
 // mm-based nudge steps (the "Perfect" band is ±0.5 mm; 1° of the old arc ≈ 1 mm).
 export const FINE_STEP_MM = 0.25
 export const COARSE_STEP_MM = 1.0
+
+// ---------------------------------------------------------------------------
+// v2.8 lateral mode (docs/decisions.md): the ghost is constrained to the line
+// PERPENDICULAR to the cue→object line, through the full-ball touching point
+// G0 = O + 2r·(C−O)/|C−O| — the classic fractional-aiming drill. Only the
+// side-to-side (cut) judgement is exercised; the touching depth is the line's.
+
+export interface LateralAxis {
+  anchor: Vec2 // G0, the full-ball ghost position
+  dir: Vec2 // unit vector along the lateral line (perpendicular to C→O)
+}
+
+export function lateralAxis(cue: Vec2, object: Vec2, ballRadiusMm: number): LateralAxis {
+  const toCue = normalize(sub(cue, object))
+  return {
+    anchor: add(object, scale(toCue, 2 * ballRadiusMm)),
+    dir: { x: -toCue.y, y: toCue.x },
+  }
+}
+
+// Signed offset of p along the lateral axis (off-line components are dropped).
+export function lateralOffset(p: Vec2, axis: LateralAxis): number {
+  return (p.x - axis.anchor.x) * axis.dir.x + (p.y - axis.anchor.y) * axis.dir.y
+}
+
+// Clamp a desired position onto the lateral line: project, then bound the offset so the
+// ghost stays inside the same placement disc as free mode (|U−O| ≤ maxCenterDist ⇒
+// |x| ≤ √(maxDist² − 4r²)) and inside the table box.
+export function clampLateral(p: Vec2, cue: Vec2, object: Vec2, table: Table): Vec2 {
+  const { cfg } = table
+  const r = cfg.ballRadiusMm
+  const axis = lateralAxis(cue, object, r)
+  const maxD = maxCenterDistMm(r)
+  let lo = -Math.sqrt(Math.max(0, maxD * maxD - 4 * r * r))
+  let hi = -lo
+  const axisBounds = (a: number, d: number, min: number, max: number): [number, number] => {
+    if (Math.abs(d) < 1e-9) return [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
+    const t1 = (min - a) / d
+    const t2 = (max - a) / d
+    return t1 < t2 ? [t1, t2] : [t2, t1]
+  }
+  const [tx1, tx2] = axisBounds(axis.anchor.x, axis.dir.x, r, cfg.tableLengthMm - r)
+  const [ty1, ty2] = axisBounds(axis.anchor.y, axis.dir.y, r, cfg.tableWidthMm - r)
+  lo = Math.max(lo, tx1, ty1)
+  hi = Math.min(hi, tx2, ty2)
+  const x = clamp(lateralOffset(p, axis), lo, Math.max(lo, hi))
+  return add(axis.anchor, scale(axis.dir, x))
+}
+
+// Lateral-mode nudge: only the delta's along-line component moves the ghost; the bump
+// (atLimit) fires when a real along-line step was absorbed by the clamp.
+export function nudgeLateral(
+  pos: Vec2,
+  delta: Vec2,
+  cue: Vec2,
+  object: Vec2,
+  table: Table,
+): NudgePosResult {
+  const axis = lateralAxis(cue, object, table.cfg.ballRadiusMm)
+  const target = { x: pos.x + delta.x, y: pos.y + delta.y }
+  const clamped = clampLateral(target, cue, object, table)
+  const want = Math.abs(delta.x * axis.dir.x + delta.y * axis.dir.y)
+  const moved = Math.hypot(clamped.x - pos.x, clamped.y - pos.y)
+  return { pos: clamped, atLimit: want > 1e-9 && moved < want * 0.5 }
+}

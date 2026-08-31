@@ -141,6 +141,20 @@ canonical aim AND eight extreme ghost placements must all fit within the FOV cap
 reference aspect, so every legal placement keeps the pocket + cue ball in frame — now
 generation-guaranteed rather than slack-approximated. GENERATOR_VERSION → 6.
 
+**v2.8 (2026-08-31, user decision):** two more settings. (1) **Lateral mode** ("Drill"
+section): the ghost only slides along the line PERPENDICULAR to the cue→object line,
+through the full-ball touching point G0 — the classic fractional-aiming drill (only the
+side-to-side cut judgement is exercised; the line supplies the depth). Swipes and ◀▶
+project onto the line, ▲▼ hide, spawns/toggles snap onto it. Grading is made fair in
+1D: the true ghost is off the axis for every cut, so "perfect" is graded against the
+point where the TRUE AIM LINE crosses the axis (same aim line ⇒ same effective contact
+⇒ pots dead centre; physics already forgives depth error along the aim line). Free-mode
+grading unchanged. (2) **Semi-transparent ghost**: opacity 0.55, no depth write, drawn
+late — an overlapped object ball stays visible; applies while aiming, opaque from the
+reveal (amber-vs-truth readability). With it off, the ghost obscures the object ball
+naturally — on the lateral line the ghost centre is always 2r nearer the shooter, so
+the nearer sphere wins the depth test everywhere they overlap on screen.
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)

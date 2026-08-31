@@ -78,13 +78,20 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   }
   const ghostStandingRow = settingRow('Show when standing')
   const ghostDownRow = settingRow('Show when down')
+  const glassRow = settingRow('Semi-transparent')
+  const lateralRow = settingRow('Lateral-only movement')
   settingsPop.append(
     el('div', 'settings-title', 'Ghost ball'),
     ghostStandingRow.row,
     ghostDownRow.row,
+    glassRow.row,
+    el('div', 'settings-title', 'Drill'),
+    lateralRow.row,
   )
   ghostStandingRow.input.checked = store.get().settings.ghostStanding
   ghostDownRow.input.checked = store.get().settings.ghostDown
+  glassRow.input.checked = store.get().settings.ghostTransparent
+  lateralRow.input.checked = store.get().settings.lateralMode
   const closeSettings = (): void => {
     settingsPop.hidden = true
     backdrop.hidden = true
@@ -99,6 +106,12 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   )
   ghostDownRow.input.addEventListener('change', () =>
     cb.onSetting({ ghostDown: ghostDownRow.input.checked }),
+  )
+  glassRow.input.addEventListener('change', () =>
+    cb.onSetting({ ghostTransparent: glassRow.input.checked }),
+  )
+  lateralRow.input.addEventListener('change', () =>
+    cb.onSetting({ lateralMode: lateralRow.input.checked }),
   )
 
   // stance control
@@ -123,6 +136,7 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   const arrowDown = el('button', 'arrow-btn arrow-small', '▼')
   arrowDown.setAttribute('aria-label', 'nudge ghost ball down')
   vertical.append(arrowUp, arrowDown)
+  vertical.hidden = store.get().settings.lateralMode
 
   // bottom bar
   const bottom = el('div', 'hud-bottom')
@@ -215,6 +229,10 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
     levelPill.textContent = ['', 'Straight-ish', 'Club', 'Sharp'][state.level] ?? 'Club'
     ghostStandingRow.input.checked = state.settings.ghostStanding
     ghostDownRow.input.checked = state.settings.ghostDown
+    glassRow.input.checked = state.settings.ghostTransparent
+    lateralRow.input.checked = state.settings.lateralMode
+    // lateral mode: only along-the-line movement exists, so the ▲▼ pair is meaningless
+    vertical.hidden = state.settings.lateralMode
     standingBtn.classList.toggle('active', state.stance === 'standing')
     downBtn.classList.toggle('active', state.stance === 'down')
     submit.textContent = state.phase === 'result' ? 'NEXT' : 'SUBMIT'

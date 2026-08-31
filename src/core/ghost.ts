@@ -1,3 +1,4 @@
+import { lateralAxis, lateralOffset } from './constraint'
 import type { Pocket, TableConfig } from './types'
 import { add, angleBetween, normalize, scale, sub, type Vec2 } from './vec'
 
@@ -25,4 +26,23 @@ export function cutAngle(cue: Vec2, ghost: Vec2, object: Vec2): number {
 // Object-ball departure direction for a ghost at U: d̂ = normalize(O − U) (§4.8).
 export function departureDir(object: Vec2, ghostPos: Vec2): Vec2 {
   return normalize(sub(object, ghostPos))
+}
+
+// v2.8 lateral mode: the perfect placement ON the lateral axis — where the TRUE aim
+// line (C → G_true) crosses it. Same aim line as the true ghost ⇒ same effective
+// contact ⇒ pots dead centre (physics forgives depth error along the aim line).
+export function lateralTruth(cue: Vec2, object: Vec2, pocket: Pocket, cfg: TableConfig): Vec2 {
+  const g = trueGhost(object, pocket, cfg)
+  const axis = lateralAxis(cue, object, cfg.ballRadiusMm)
+  const a = sub(g, cue) // aim direction
+  const b = sub(axis.anchor, cue)
+  // solve cue + t·a = anchor + x·dir (Cramer); a is never parallel to dir — the aim
+  // points from C toward the O neighbourhood, dir is perpendicular to C→O
+  const det = a.x * -axis.dir.y - -axis.dir.x * a.y
+  if (Math.abs(det) < 1e-12) {
+    // degenerate fallback: project G_true onto the axis
+    return add(axis.anchor, scale(axis.dir, lateralOffset(g, axis)))
+  }
+  const x = (a.x * b.y - a.y * b.x) / det
+  return add(axis.anchor, scale(axis.dir, x))
 }

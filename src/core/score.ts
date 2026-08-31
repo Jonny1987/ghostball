@@ -1,5 +1,5 @@
 import { ghostAt } from './constraint'
-import { cutAngle, trueGhost } from './ghost'
+import { cutAngle, lateralTruth, trueGhost } from './ghost'
 import { effectiveContact, missMetrics, simulate } from './simulate'
 import type { Band, ShotResult, SimResult, Table } from './types'
 import { angleBetween, cross, degToRad, radToDeg, sub, type Vec2, wrapToPi } from './vec'
@@ -114,6 +114,10 @@ export interface ScoreInput {
   cue: Vec2
   object: Vec2
   targetPocketId: number
+  // v2.8 lateral mode: the guess lives on the lateral axis, so grade the distance to
+  // the axis's own perfect point (where the true aim line crosses it) instead of to
+  // G_true, which is off the axis for every cut and would make "perfect" unreachable.
+  lateral?: boolean
 }
 
 export interface FullResult extends ShotResult {
@@ -135,7 +139,8 @@ export function computeResult(input: ScoreInput, table: Table): FullResult {
   const ghost = trueGhost(object, pk, cfg)
   const tTrue = Math.atan2(ghost.y - object.y, ghost.x - object.x)
 
-  const positionErrorMm = Math.hypot(ghostPos.x - ghost.x, ghostPos.y - ghost.y)
+  const gradeRef = input.lateral ? lateralTruth(cue, object, pk, cfg) : ghost
+  const positionErrorMm = Math.hypot(ghostPos.x - gradeRef.x, ghostPos.y - gradeRef.y)
   const centerDist = Math.hypot(ghostPos.x - object.x, ghostPos.y - object.y)
   const radialErrorMm = centerDist - 2 * r
   const thetaPlaced =

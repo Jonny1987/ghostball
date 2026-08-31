@@ -1,5 +1,6 @@
 import {
   clamp,
+  clampLateral,
   computeResult,
   cutAngle,
   DEFAULT_TABLE,
@@ -9,6 +10,7 @@ import {
   generateShot,
   ghostAt,
   type LevelId,
+  nudgeLateral,
   nudgePos,
   radToDeg,
   type Shot,
@@ -85,8 +87,10 @@ function toast(message: string, actions?: Array<{ label: string; onClick: () => 
 
 // Ghost spawns touching at the jittered straight-through angle (§1): a neutral full-ball
 // starting guess that leaks nothing about the answer; the user moves it freely from there.
-function spawnPos(s: Shot): Vec2 {
-  return ghostAt(spawnTheta(s, table), s.object, table.cfg.ballRadiusMm)
+// Lateral mode (v2.8) projects the spawn onto its axis.
+function spawnPos(s: Shot, lateral: boolean): Vec2 {
+  const p = ghostAt(spawnTheta(s, table), s.object, table.cfg.ballRadiusMm)
+  return lateral ? clampLateral(p, s.cue, s.object, table) : p
 }
 
 function boot(): void {
@@ -111,7 +115,7 @@ function boot(): void {
     phase: 'aiming',
     stance: 'standing',
     shot,
-    ghost: spawnPos(shot),
+    ghost: spawnPos(shot, settings.lateralMode),
     result: null,
     level,
     assisted: false,
@@ -138,7 +142,10 @@ function boot(): void {
         x: (dirs.right.x * dxPx - dirs.up.x * dyPx) * SWIPE_MM_PER_PX,
         y: (dirs.right.y * dxPx - dirs.up.y * dyPx) * SWIPE_MM_PER_PX,
       }
-      store.set({ ghost: nudgePos(s.ghost, delta, s.shot.object, table).pos })
+      const moved = s.settings.lateralMode
+        ? nudgeLateral(s.ghost, delta, s.shot.cue, s.shot.object, table)
+        : nudgePos(s.ghost, delta, s.shot.object, table)
+      store.set({ ghost: moved.pos })
     },
   })
 
@@ -176,6 +183,7 @@ function boot(): void {
         cue: s.shot.cue,
         object: s.shot.object,
         targetPocketId: s.shot.pocketId,
+        lateral: s.settings.lateralMode,
       },
       table,
     )
@@ -220,7 +228,7 @@ function boot(): void {
     store.set({
       phase: 'aiming',
       shot: s2,
-      ghost: spawnPos(s2),
+      ghost: spawnPos(s2, store.get().settings.lateralMode),
       result: null,
       assisted: false,
       peeking: false,
@@ -234,7 +242,12 @@ function boot(): void {
     const s = store.get()
     feedback.hide()
     // same shot, flagged assisted — excluded from streaks/averages (§5)
-    store.set({ phase: 'aiming', result: null, assisted: true, ghost: spawnPos(s.shot) })
+    store.set({
+      phase: 'aiming',
+      result: null,
+      assisted: true,
+      ghost: spawnPos(s.shot, s.settings.lateralMode),
+    })
   }
 
   let levelToastShown = false
@@ -275,7 +288,10 @@ function boot(): void {
     onNudge: (dir, stepMm) => {
       const s = store.get()
       if (s.phase !== 'aiming') return false
-      const res = nudgePos(s.ghost, nudgeDelta(dir, stepMm), s.shot.object, table)
+      const delta = nudgeDelta(dir, stepMm)
+      const res = s.settings.lateralMode
+        ? nudgeLateral(s.ghost, delta, s.shot.cue, s.shot.object, table)
+        : nudgePos(s.ghost, delta, s.shot.object, table)
       store.set({ ghost: res.pos })
       return res.atLimit
     },
@@ -300,7 +316,12 @@ function boot(): void {
       const s = store.get()
       const nextSettings = { ...s.settings, ...patch }
       saveSettings(nextSettings)
-      store.set({ settings: nextSettings })
+      // turning lateral mode on snaps the current ghost onto its axis (v2.8)
+      const ghost =
+        patch.lateralMode === true && s.phase === 'aiming'
+          ? clampLateral(s.ghost, s.shot.cue, s.shot.object, table)
+          : s.ghost
+      store.set({ settings: nextSettings, ghost })
     },
   })
 

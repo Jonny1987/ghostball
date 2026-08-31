@@ -134,6 +134,7 @@ export class Balls {
     userAsGuessColor: boolean,
     touchObject = true,
     showGhost = true,
+    glassyGhost = false,
   ): void {
     this.place(this.cue, shot.cue)
     if (touchObject) {
@@ -154,6 +155,12 @@ export class Balls {
 
     const mat = this.ghost.material as THREE.MeshPhysicalMaterial
     mat.color.setHex(userAsGuessColor ? COLOR.user : COLOR.ghost)
+    // v2.8 semi-transparent option: with it on, an overlapped object ball shows through
+    // (no depth write, drawn late); opaque, the nearer ghost naturally obscures it.
+    mat.transparent = glassyGhost
+    mat.opacity = glassyGhost ? 0.55 : 1
+    mat.depthWrite = !glassyGhost
+    this.ghost.renderOrder = glassyGhost ? 3 : 0
 
     if (showTruth) {
       const pk = this.table.pockets[shot.pocketId]

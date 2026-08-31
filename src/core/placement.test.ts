@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { clampPlacement, frameRadiusMm, ghostAt, maxCenterDistMm, nudgePos } from './constraint'
+import {
+  clampLateral,
+  clampPlacement,
+  frameRadiusMm,
+  ghostAt,
+  lateralAxis,
+  maxCenterDistMm,
+  nudgeLateral,
+  nudgePos,
+} from './constraint'
 import { fitStandingZoom, standingFrameCheck } from './framecheck'
 import { generateShot } from './generate'
-import { trueGhost } from './ghost'
+import { lateralTruth, trueGhost } from './ghost'
 import { computeResult } from './score'
 import { effectiveContact } from './simulate'
 import { DEFAULT_TABLE } from './table'
@@ -158,6 +167,73 @@ describe('v2 frameability over generated shots', () => {
     }
   })
 })
+
+describe('v2.8 lateral mode', () => {
+  it('clampLateral keeps any point on the perpendicular line, inside disc and table', () => {
+    const axis = lateralAxis(C, O, r)
+    const aim = { x: -axis.dir.y, y: axis.dir.x } // unit along C→O plane normal to dir
+    for (const p of [vec(700, 500), vec(300, 100), O, vec(O.x + 500, O.y - 500)]) {
+      const q = clampLateral(p, C, O, T)
+      // on the line: no component along the aim direction from the anchor
+      const off = (q.x - axis.anchor.x) * aim.x + (q.y - axis.anchor.y) * aim.y
+      expect(Math.abs(off)).toBeLessThan(1e-9)
+      // inside the placement disc around O
+      expect(dist(q, O)).toBeLessThanOrEqual(maxCenterDistMm(r) + 1e-9)
+    }
+  })
+
+  it('nudgeLateral moves only along the line; perpendicular deltas are inert, bounds bump', () => {
+    const axis = lateralAxis(C, O, r)
+    const start = axis.anchor
+    const along = nudgeLateral(start, scale2(axis.dir, 5), C, O, T)
+    expect(dist(along.pos, start)).toBeCloseTo(5, 6)
+    expect(along.atLimit).toBe(false)
+    const perp = nudgeLateral(start, { x: -axis.dir.y * 5, y: axis.dir.x * 5 }, C, O, T)
+    expect(dist(perp.pos, start)).toBeLessThan(1e-9)
+    expect(perp.atLimit).toBe(false) // no along-line intent — no bump
+    const wall = nudgeLateral(
+      clampLateral(vec(O.x, O.y + 999), C, O, T),
+      scale2(axis.dir, 50),
+      C,
+      O,
+      T,
+    )
+    expect(wall.atLimit).toBe(true)
+  })
+
+  it('lateralTruth is on the axis, and placing there pots with a perfect lateral grade', () => {
+    const pkX = T.pockets[0]
+    if (!pkX) throw new Error('pocket 0 missing')
+    const X = lateralTruth(C, O, pkX, cfg)
+    const axis = lateralAxis(C, O, r)
+    const aim = { x: -axis.dir.y, y: axis.dir.x }
+    const off = (X.x - axis.anchor.x) * aim.x + (X.y - axis.anchor.y) * aim.y
+    expect(Math.abs(off)).toBeLessThan(1e-9)
+    const res = computeResult(
+      { ghostPos: X, cue: C, object: O, targetPocketId: 0, lateral: true },
+      T,
+    )
+    expect(res.potted).toBe(true)
+    expect(res.positionErrorMm).toBeLessThan(1e-6)
+    expect(res.band).toBe('perfect')
+    // 5 mm off along the line grades as exactly 5 mm
+    const off5 = computeResult(
+      {
+        ghostPos: vec(X.x + axis.dir.x * 5, X.y + axis.dir.y * 5),
+        cue: C,
+        object: O,
+        targetPocketId: 0,
+        lateral: true,
+      },
+      T,
+    )
+    expect(off5.positionErrorMm).toBeCloseTo(5, 6)
+  })
+})
+
+function scale2(v: { x: number; y: number }, s: number): { x: number; y: number } {
+  return { x: v.x * s, y: v.y * s }
+}
 
 describe('v2.7 standing framing: eye on the aim line — cue ball AND ghost centred', () => {
   it('for any legal ghost position: cue + ghost at centre-x, pocket and cue ball in frame', () => {

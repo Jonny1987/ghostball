@@ -134,7 +134,18 @@ export class Scene3D {
     const showGhost =
       !preReveal ||
       (state.stance === 'standing' ? state.settings.ghostStanding : state.settings.ghostDown)
-    this.balls.sync(state.shot, state.ghost, showTruth, guessColored, !objectLive, showGhost)
+    // v2.8: semi-transparent ghost while aiming so an overlapping object ball stays
+    // visible; opaque from the reveal on (readability of the amber guess vs the truth)
+    const glassyGhost = preReveal && state.settings.ghostTransparent
+    this.balls.sync(
+      state.shot,
+      state.ghost,
+      showTruth,
+      guessColored,
+      !objectLive,
+      showGhost,
+      glassyGhost,
+    )
     this.aids.setTargetPocket(state.shot.pocketId)
 
     if (state.phase === 'aiming' && (shotChanged || (prev && prev.phase !== 'aiming'))) {
