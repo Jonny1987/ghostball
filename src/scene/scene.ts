@@ -8,6 +8,7 @@ import { assertCrossProjection } from './assertions'
 import { Balls } from './balls'
 import { buildScene } from './buildScene'
 import {
+  type CameraPose,
   DampedCamera,
   type DownRig,
   downPose,
@@ -51,6 +52,7 @@ export class Scene3D {
   private activeAnim: { skip: () => void } | null = null
   private activeAnimTask: Task | null = null
   private lostContext = false
+  private lastPose: CameraPose | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -71,6 +73,8 @@ export class Scene3D {
     this.balls = new Balls(this.scene, table)
     this.aids = new Aids(this.scene, table)
     this.cam = new DampedCamera(1)
+    // test hook: headless drive scripts read the live camera to await settlement
+    ;(window as unknown as { __scene?: unknown }).__scene = this
     this.chevron = new PocketChevron(chevronContainer)
     this.downRig = pickDownRig()
 
@@ -176,6 +180,14 @@ export class Scene3D {
     const axis = tip.clone().sub(butt).normalize() // butt → tip (cylinder +Y is the tip end)
     this.cueStick.position.copy(tip.clone().add(butt).multiplyScalar(0.5))
     this.cueStick.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis)
+
+    // A dollied-back down view can put the eye BEHIND the butt on the stick's own axis —
+    // the stick then runs straight down the view centre and occludes the aim line. When
+    // the shooter has stood that far back off the shot, the cue goes with them: hide it.
+    if (state.stance === 'down' && this.lastPose) {
+      const fwd = this.lastPose.target.clone().sub(this.lastPose.eye).normalize()
+      if (butt.clone().sub(this.lastPose.eye).dot(fwd) > 0) this.cueStick.visible = false
+    }
   }
 
   private applyCamera(state: AppState, snap: boolean, tau = STANCE_TRANSITION_S): void {
@@ -184,6 +196,7 @@ export class Scene3D {
       state.stance === 'standing'
         ? standingPose(state.shot, this.table, aspect, state.ghost)
         : downPose(state.shot, state.ghost, this.table, this.downRig, aspect)
+    this.lastPose = pose
     if (snap) this.cam.snapTo(pose)
     else this.cam.moveTo(pose, tau)
     this.invalidate()

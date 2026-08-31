@@ -63,11 +63,13 @@ export function standingPose(
   return { eye, target, fovDeg: fit.vFovDeg }
 }
 
-// Down-view pocket fit (v2.2): the pose must show the TARGET POCKET together with the
-// ghost + object ball. The eye stays ON the aim line behind the cue ball — that is the
-// stance's identity (in plan view eye, C and U are collinear, so the cue→ghost alignment
-// always reads as the aim) — while the look centres the required points' bounding box
-// and the FOV widens from the rig's natural value as needed.
+// Down-view pocket fit (v2.2, ghost-centred v2.5): the pose must show the TARGET
+// POCKET together with the ghost + object ball, with the GHOST at the horizontal screen
+// centre (matching the standing view). The eye stays ON the aim line behind the cue
+// ball — that is the stance's identity (in plan view eye, C and U are collinear, so the
+// cue→ghost alignment always reads as the aim) — while the look yaws onto the ghost,
+// centres the box vertically, and the FOV widens from the rig's natural value as needed
+// (measured from the ghost, so the pocket fits off to one side).
 const DOWN_FIT = {
   margin: 1.15, // slight margin around the required points
   maxVFovDeg: 66, // widest before the view reads as fisheye
@@ -90,9 +92,10 @@ function downRequiredPoints(shot: Shot, u: Vec2, table: Table): THREE.Vector3[] 
   return pts
 }
 
-// Gnomonic box fit from a fixed eye (same scheme as core's fitStandingZoom): two
-// steering iterations centre the look on the bounding box, then the needed vertical
-// FOV falls out of the box extents at the viewport aspect.
+// Gnomonic fit from a fixed eye (same scheme as core's fitStandingZoom): two steering
+// iterations yaw the look onto the GHOST horizontally and the box centre vertically;
+// the horizontal FOV is measured from the ghost's screen position, so the needed FOV
+// is exactly what keeps the pocket in frame with the ghost dead-centre (v2.5).
 function fitDownView(
   eye: THREE.Vector3,
   ghostW: THREE.Vector3,
@@ -107,25 +110,25 @@ function fitDownView(
   for (let iter = 0; iter < 2; iter++) {
     const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize()
     const up = new THREE.Vector3().crossVectors(right, forward)
-    let xMin = Number.POSITIVE_INFINITY
-    let xMax = Number.NEGATIVE_INFINITY
+    v.copy(ghostW).sub(eye)
+    const xG = v.dot(right) / v.dot(forward)
+    let tanHMax = 0
     let yMin = Number.POSITIVE_INFINITY
     let yMax = Number.NEGATIVE_INFINITY
     for (const p of pts) {
       v.copy(p).sub(eye)
       const zc = v.dot(forward)
       if (zc <= 0.01) return { look: forward, neededVFovDeg: Number.POSITIVE_INFINITY }
-      const xt = v.dot(right) / zc
+      const d = Math.abs(v.dot(right) / zc - xG)
+      if (d > tanHMax) tanHMax = d
       const yt = v.dot(up) / zc
-      if (xt < xMin) xMin = xt
-      if (xt > xMax) xMax = xt
       if (yt < yMin) yMin = yt
       if (yt > yMax) yMax = yt
     }
-    tanH = ((xMax - xMin) / 2) * DOWN_FIT.margin
+    tanH = tanHMax * DOWN_FIT.margin
     tanV = ((yMax - yMin) / 2) * DOWN_FIT.margin
     forward = forward
-      .add(right.multiplyScalar((xMin + xMax) / 2))
+      .add(right.multiplyScalar(xG))
       .add(up.multiplyScalar((yMin + yMax) / 2))
       .normalize()
   }
@@ -136,8 +139,9 @@ function fitDownView(
 // Down-on-the-shot: eye behind C on the C→U line at rig height, re-sighting as the
 // guess changes (§5). v2.2: FOV widens up to DOWN_FIT.maxVFovDeg to include the pocket;
 // still too wide → dolly straight back along the aim line (receding narrows the angular
-// spread) up to maxBehindM; in the degenerate remainder (ultra-wide spreads on narrow
-// screens) fall back to the classic ghost-look pose — the edge chevron covers the pocket.
+// spread) up to maxBehindM; in the degenerate remainder (a near-perpendicular pocket on
+// a narrow screen cannot share the frame with a centred ghost) fall back to the classic
+// ghost-look pose — still ghost-centred, and the edge chevron covers the pocket.
 export function downPose(
   shot: Shot,
   u: Vec2,
@@ -178,7 +182,36 @@ export function downPose(
   }
   const eye = eyeAt(behind)
   const fovDeg = Math.min(DOWN_FIT.maxVFovDeg, Math.max(rig.fovDeg, fit.neededVFovDeg))
-  const target = eye.clone().addScaledVector(fit.look, 2)
+
+  // When the FINAL FOV (rig floor, or horizontally-driven) leaves excess vertical room,
+  // box-centring would hang the content mid-frame under empty space. Pitch down so the
+  // content's centre sits ~28% above the frame middle — balls above centre, table
+  // filling the lower view, only a sliver of room above — capped so nothing gets pushed
+  // past 80% of the half-height. Vertically-tight fits are untouched.
+  let look = fit.look
+  const halfT = Math.tan((fovDeg * Math.PI) / 360)
+  const right = new THREE.Vector3().crossVectors(look, new THREE.Vector3(0, 1, 0)).normalize()
+  const upV = new THREE.Vector3().crossVectors(right, look)
+  const v = new THREE.Vector3()
+  let yMinC = Number.POSITIVE_INFINITY
+  let yMaxC = Number.NEGATIVE_INFINITY
+  for (const p of pts) {
+    v.copy(p).sub(eye)
+    const zc = v.dot(look)
+    if (zc > 0.01) {
+      const yt = v.dot(upV) / zc
+      if (yt < yMinC) yMinC = yt
+      if (yt > yMaxC) yMaxC = yt
+    }
+  }
+  if (Number.isFinite(yMaxC)) {
+    const shiftWant = 0.28 * halfT - (yMinC + yMaxC) / 2
+    const shiftCap = (0.8 * halfT) / DOWN_FIT.margin - yMaxC
+    const shift = Math.max(0, Math.min(shiftWant, shiftCap))
+    if (shift > 0) look = look.clone().addScaledVector(upV, -shift).normalize()
+  }
+
+  const target = eye.clone().addScaledVector(look, 2)
   return { eye, target, fovDeg }
 }
 

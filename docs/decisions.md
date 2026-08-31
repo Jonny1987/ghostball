@@ -99,6 +99,24 @@ right in (the fit is unchanged in spirit — this only adds required content); l
 settle around 50–60° vertical FOV. The cue stick now renders while aiming in BOTH
 stances. GENERATOR_VERSION → 5 (frameability check 6 got stricter).
 
+**v2.5 (2026-08-31, user decision):** the DOWN view now horizontally centres the ghost
+too, matching the standing view. The down fit's look yaws onto the ghost (instead of
+centring the ghost/object/pocket bounding box) and the horizontal FOV is measured from
+the ghost's screen position — exactly what keeps the pocket in frame off to one side
+with the ghost dead-centre. The widen (≤66°) → dolly (≤3 m) → chevron ladder is
+unchanged; centring the ghost roughly doubles the horizontal need vs box-centring, so
+sharp cuts on narrow screens hit the chevron fallback somewhat more often (which is
+itself ghost-centred — a near-perpendicular pocket physically cannot share a ~33°
+portrait frame with a centred ghost). Two composition fixes that came out of it: a
+dollied-back eye can end up BEHIND the cue's butt on the stick's own axis (the stick
+then runs down the view centre and occludes the aim line) — the stick hides once the
+shooter has stood that far back; and when the final FOV leaves excess vertical room the
+look pitches down so content tops out ~68% up the frame instead of hanging centred
+under empty space. No generator change — down framing is not a generation check.
+Headless-verify note: drive scripts must wait for `__scene.cam.targetPose === null`
+(camera settled) before screenshotting — SwiftShader's low FPS plus the render loop's
+50 ms dt clamp stretches transitions ~10×, which mimics a broken pose.
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)
