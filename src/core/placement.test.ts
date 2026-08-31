@@ -159,8 +159,8 @@ describe('v2 frameability over generated shots', () => {
   })
 })
 
-describe('v2.2 standing framing: the ghost itself is centred, the zoom never breathes', () => {
-  it('for any legal ghost position: ghost at centre-x, pocket in frame, FOV ghost-independent', () => {
+describe('v2.7 standing framing: eye on the aim line — cue ball AND ghost centred', () => {
+  it('for any legal ghost position: cue + ghost at centre-x, pocket and cue ball in frame', () => {
     const aspect = 390 / 844
     const offsets = [
       [0, 0],
@@ -174,9 +174,12 @@ describe('v2.2 standing framing: the ghost itself is centred, the zoom never bre
     for (const level of [1, 2, 3] as LevelId[]) {
       for (let seed = 800; seed < 820; seed++) {
         const s = generateShot(seed, level, T)
-        const base = fitStandingZoom(s.cue, s.object, s.pocketId, T, aspect)
         for (const [dx, dy] of offsets) {
-          const g = vec(s.object.x + dx * maxCenterDistMm(r), s.object.y + dy * maxCenterDistMm(r))
+          const g = clampPlacement(
+            vec(s.object.x + dx * maxCenterDistMm(r), s.object.y + dy * maxCenterDistMm(r)),
+            s.object,
+            T,
+          )
           const fit = fitStandingZoom(s.cue, s.object, s.pocketId, T, aspect, undefined, g)
           const fwd = fit.look
           const right = norm3(cross3(fwd, { x: 0, y: 0, z: 1 }))
@@ -189,12 +192,13 @@ describe('v2.2 standing framing: the ghost itself is centred, the zoom never bre
               y: (v.x * up.x + v.y * up.y + v.z * up.z) / zc,
             }
           }
-          // (a) the ghost projects to the horizontal screen centre
-          expect(Math.abs(proj({ x: g.x, y: g.y, z: r }).x)).toBeLessThan(0.02)
-          // (b) the zoom is EXACTLY constant per shot — the FOV pass never sees the
-          // ghost, so following it only yaws the camera
-          expect(fit.vFovDeg).toBe(base.vFovDeg)
-          // (c) the target pocket stays inside the frame at that fixed zoom
+          // (a) the ghost AND the cue ball both project to the horizontal screen centre
+          // (exact by construction: eye, cue and ghost share one vertical plane)
+          expect(Math.abs(proj({ x: g.x, y: g.y, z: r }).x)).toBeLessThan(1e-9)
+          expect(Math.abs(proj({ x: s.cue.x, y: s.cue.y, z: r }).x)).toBeLessThan(1e-9)
+          // (b) generation guarantees the fit for every legal placement
+          expect(fit.fits).toBe(true)
+          // (c) the target pocket stays inside the frame
           const pk = T.pockets[s.pocketId]
           if (!pk) throw new Error('pocket missing')
           const halfV = Math.tan(degToRad(fit.vFovDeg / 2))

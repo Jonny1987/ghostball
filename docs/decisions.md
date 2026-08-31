@@ -128,6 +128,19 @@ shows (that feedback is the point). The M5 "settings sheet UI" item is now parti
 closed; the remaining settings (sound, haptics, cue stick, chip, inset) still have no
 UI.
 
+**v2.7 (2026-08-31, user decision):** the standing view now keeps the CUE BALL at the
+horizontal centre too, like the down view does. Same construction as the down rig, from
+standing height: the eye sits on the CUE→GHOST line (1.3 m behind the cue ball, 1.62 m
+up) and the look's azimuth is locked to that line — eye, cue ball and ghost share one
+vertical plane, so both project to centre-x *exactly*, for any placement; moving the
+ghost orbits the camera around the cue ball. The fit therefore lost its two-pass
+ghost-slack structure (only the pitch and FOV are fitted now) and the v2.2
+"zoom never breathes" guarantee is relaxed to the down view's behaviour: the FOV
+re-fits per placement (damped, 0.15 s). Frameability check 6 is hardened to match: the
+canonical aim AND eight extreme ghost placements must all fit within the FOV cap at the
+reference aspect, so every legal placement keeps the pocket + cue ball in frame — now
+generation-guaranteed rather than slack-approximated. GENERATOR_VERSION → 6.
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)

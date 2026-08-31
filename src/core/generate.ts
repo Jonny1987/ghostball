@@ -19,7 +19,7 @@ import {
 } from './vec'
 
 // Bumps on ANY change to the generator or its constants — calibration retuning included (§4.10).
-export const GENERATOR_VERSION = 5
+export const GENERATOR_VERSION = 6
 
 // Pinned PRNG (§4.10): mulberry32, reference implementation verbatim.
 export function mulberry32(seed: number): () => number {
