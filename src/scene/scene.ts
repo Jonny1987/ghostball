@@ -166,19 +166,19 @@ export class Scene3D {
     const cueW = toWorld(state.shot.cue, r)
     const uW = toWorld(u, r)
     const dir = uW.clone().sub(cueW).setY(0).normalize()
-    const buttDrop = 0.05
-    const mid = cueW
+    // Address the CUE ball like a real cue: TIP 5 cm behind the cue ball at ball-centre
+    // height, BUTT raised toward the shooter — the stick slopes down to the ball, never
+    // past it (a tilted-up tip used to float beyond the cue ball toward the ghost).
+    const stickLen = 1.45
+    const buttRise = 0.12
+    const tip = cueW.clone().addScaledVector(dir, -0.05)
+    const butt = tip
       .clone()
-      .addScaledVector(dir, -(0.05 + 1.45 / 2))
-      .setY(BED_Y + r * MM_TO_M + buttDrop / 2)
-    this.cueStick.position.copy(mid)
-    this.cueStick.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      dir
-        .clone()
-        .add(new THREE.Vector3(0, buttDrop, 0))
-        .normalize(),
-    )
+      .addScaledVector(dir, -stickLen)
+      .add(new THREE.Vector3(0, buttRise, 0))
+    const axis = tip.clone().sub(butt).normalize() // butt → tip (cylinder +Y is the tip end)
+    this.cueStick.position.copy(tip.clone().add(butt).multiplyScalar(0.5))
+    this.cueStick.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis)
   }
 
   private applyCamera(state: AppState, snap: boolean, tau = STANCE_TRANSITION_S): void {

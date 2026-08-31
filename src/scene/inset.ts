@@ -39,9 +39,13 @@ export class ContactInset {
     this.camera.lookAt(contact)
     this.camera.updateProjectionMatrix()
 
+    // top-right, below the top bar — clear of the chip (bottom-left) and nudge arrows
+    const topBarPx = Math.round(size.y * 0.08)
+    const vx = size.x - px - margin
+    const vy = size.y - px - topBarPx - margin
     renderer.setScissorTest(true)
-    renderer.setViewport(margin, margin, px, px)
-    renderer.setScissor(margin, margin, px, px)
+    renderer.setViewport(vx, vy, px, px)
+    renderer.setScissor(vx, vy, px, px)
     renderer.render(scene, this.camera)
     renderer.setScissorTest(false)
     renderer.setViewport(0, 0, size.x, size.y)
