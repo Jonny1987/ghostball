@@ -57,6 +57,25 @@ camera stays fixed per shot (yawing to follow the ghost live would slide the sce
 the finger mid-drag), and the ghost's ±114 mm wander keeps it within ~1–2° of centre.
 GENERATOR_VERSION → 3.
 
+**v2.2 (2026-08-31):** two follow-ups from on-device use. (1) The standing view now
+horizontally centres the **ghost ball itself**, not the placement-region centre: after a
+nudge or a drag-release the camera yaws onto the ghost (damped, ~0.3 s), but it stays
+frozen **during** a drag (re-aiming mid-drag would slide the table under the finger —
+`onDragState` wires the freeze). The FOV is measured from the object ball plus slack for
+the ghost's maximum wander, so the zoom is **constant per shot**: following the ghost only
+yaws the camera, and every legal placement keeps the pocket + region in frame at that
+fixed zoom. (2) The down view now fits the **target pocket** too: the eye stays on the aim
+line (in plan view eye/cue/ghost are collinear — the stance's identity), the look centres
+the {ghost, object ball, pocket} bounding box, and the FOV widens from the rig's natural
+value up to 66°; still not enough → the eye dollies straight back along the aim line (up
+to 3 m — receding narrows the angular spread, so this always converges eventually); in
+the rare degenerate remainder (ultra-wide spreads on narrow screens) it falls back to the
+classic ghost-look pose and the edge chevron still points at the pocket. Since the fit
+often lands the pocket near a top corner, the contact-zoom inset now dodges it: it flips
+to the opposite top corner when its slot would cover the pocket (hysteresis — it only
+moves when its own slot is violated). GENERATOR_VERSION → 4 (the standing FOV now
+includes the wander slack, which changes frameability check 6).
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)

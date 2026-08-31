@@ -23,6 +23,7 @@ export interface InputContext {
   camera: () => THREE.PerspectiveCamera
   onDragPoint: (p: Vec2) => void // standing: absolute table point (clamped by the app)
   onSwipe: (dxPx: number, dyPx: number) => void // down: relative 2D swipe
+  onDragState: (active: boolean) => void // standing grab start/end (freezes camera re-aim)
 }
 
 export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputContext): void {
@@ -33,6 +34,7 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
 
   let activePointer: number | null = null
   let dragging = false
+  let standingGrab = false
   let lastX = 0
   let lastY = 0
   let grabOffsetX = 0
@@ -83,6 +85,8 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
       const py = ev.clientY - rect.top
       if (gp !== null && Math.hypot(px - gp.x, py - gp.y) <= FEEL.grabRadiusPx) {
         dragging = true
+        standingGrab = true
+        ctx.onDragState(true)
         grabTime = performance.now()
         // capture the finger→ghost offset so the grab itself never moves the ghost
         grabOffsetX = gp.x - px
@@ -113,6 +117,10 @@ export function bindInput(canvas: HTMLCanvasElement, table: Table, ctx: InputCon
     if (ev.pointerId !== activePointer) return
     activePointer = null
     dragging = false
+    if (standingGrab) {
+      standingGrab = false
+      ctx.onDragState(false)
+    }
     try {
       canvas.releasePointerCapture(ev.pointerId)
     } catch {

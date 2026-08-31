@@ -1,4 +1,4 @@
-import { frameRadiusMm } from './constraint'
+import { frameRadiusMm, maxCenterDistMm } from './constraint'
 import type { Table } from './types'
 import { normalize, radToDeg, scale, sub, type Vec2 } from './vec'
 
@@ -72,10 +72,12 @@ function requiredPoints(object: Vec2, pocketId: number, table: Table): Vec3[] {
 }
 
 // Max-zoom fit: gnomonic-project the required points from the eye, aim the look
-// direction so the PLACEMENT REGION (centred on O — where the ghost lives) sits at the
-// horizontal centre of the screen, centre vertically on the bounding box, and take the
-// smallest FOV that still contains everything — the pocket sits off to one side (two
-// recentering iterations make the first-order approximation exact enough).
+// direction so the GHOST BALL sits at the horizontal centre of the screen (falling back
+// to O — the placement-region centre — when no ghost is given, e.g. the generation-time
+// check), centre vertically on the bounding box, and take the smallest FOV that still
+// contains everything. The FOV is measured from O plus slack for the ghost's maximum
+// wander, so it is CONSTANT per shot — moving the ghost only yaws the camera, the zoom
+// never breathes — and any legal ghost position keeps every required point in frame.
 export function fitStandingZoom(
   cue: Vec2,
   object: Vec2,
@@ -83,6 +85,7 @@ export function fitStandingZoom(
   table: Table,
   aspect: number,
   fitMargin = STANDING_RIG.fitMargin,
+  ghostPos?: Vec2,
 ): StandingFit {
   const r = table.cfg.ballRadiusMm
   const dir = normalize(sub(object, cue))
@@ -95,41 +98,57 @@ export function fitStandingZoom(
   let tanH = 0
   let tanV = 0
 
+  // Pass A — ghost-independent fit: converge the look on O (horizontal) / the box
+  // (vertical) and measure the FOV half-width from O plus slack for the ghost's max
+  // wander. This pass never sees ghostPos, so the per-shot zoom CANNOT breathe as the
+  // ghost moves — and the generation-time check shares it bit-for-bit.
   for (let iter = 0; iter < 2; iter++) {
     const right = norm3(cross3(forward, worldUp))
     const up = cross3(right, forward)
-    let xMin = Number.POSITIVE_INFINITY
-    let xMax = Number.NEGATIVE_INFINITY
     let yMin = Number.POSITIVE_INFINITY
     let yMax = Number.NEGATIVE_INFINITY
-    for (const p of pts) {
-      const v = sub3(p, eye)
-      const zc = dot3(v, forward)
-      if (zc <= 1) continue // degenerate; ignore (cannot happen for on-table points)
-      const xt = dot3(v, right) / zc
-      const yt = dot3(v, up) / zc
-      if (xt < xMin) xMin = xt
-      if (xt > xMax) xMax = xt
-      if (yt < yMin) yMin = yt
-      if (yt > yMax) yMax = yt
-    }
-    // horizontal centre is FORCED to O (pts[0]) so the ghost stays mid-screen; the
-    // horizontal half-width is measured from there (the pocket side dominates it)
     const vO = sub3(pts[0] as Vec3, eye)
-    const xO = dot3(vO, right) / dot3(vO, forward)
+    const zO = dot3(vO, forward)
+    const xO = dot3(vO, right) / zO
     let tanHMax = 0
     for (const p of pts) {
       const v = sub3(p, eye)
       const zc = dot3(v, forward)
-      if (zc <= 1) continue
+      if (zc <= 1) continue // degenerate; ignore (cannot happen for on-table points)
       const d = Math.abs(dot3(v, right) / zc - xO)
       if (d > tanHMax) tanHMax = d
+      const yt = dot3(v, up) / zc
+      if (yt < yMin) yMin = yt
+      if (yt > yMax) yMax = yt
     }
-    const cx = xO
-    const cy = (yMin + yMax) / 2
-    tanH = tanHMax * fitMargin
+    const ghostSlack = maxCenterDistMm(r) / zO
+    tanH = (tanHMax + ghostSlack) * fitMargin
     tanV = ((yMax - yMin) / 2) * fitMargin
-    forward = norm3(add3(forward, add3(scale3(right, cx), scale3(up, cy))))
+    forward = norm3(add3(forward, add3(scale3(right, xO), scale3(up, (yMin + yMax) / 2))))
+  }
+
+  // Pass B — look-only steering: yaw so the GHOST sits at the horizontal screen centre
+  // (the wander slack in tanH covers exactly this yaw, so every required point stays in
+  // frame); vertical stays centred on the box. The FOV from pass A is untouched.
+  if (ghostPos) {
+    const centrePt: Vec3 = { x: ghostPos.x, y: ghostPos.y, z: r }
+    for (let iter = 0; iter < 2; iter++) {
+      const right = norm3(cross3(forward, worldUp))
+      const up = cross3(right, forward)
+      let yMin = Number.POSITIVE_INFINITY
+      let yMax = Number.NEGATIVE_INFINITY
+      for (const p of pts) {
+        const v = sub3(p, eye)
+        const zc = dot3(v, forward)
+        if (zc <= 1) continue
+        const yt = dot3(v, up) / zc
+        if (yt < yMin) yMin = yt
+        if (yt > yMax) yMax = yt
+      }
+      const vC = sub3(centrePt, eye)
+      const cx = dot3(vC, right) / dot3(vC, forward)
+      forward = norm3(add3(forward, add3(scale3(right, cx), scale3(up, (yMin + yMax) / 2))))
+    }
   }
 
   const neededV = 2 * radToDeg(Math.atan(Math.max(tanV, tanH / aspect)))

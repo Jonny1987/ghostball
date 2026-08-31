@@ -1,5 +1,13 @@
 import * as THREE from 'three'
-import { fitStandingZoom, normalize, type Shot, scale, sub, type Table, type Vec2 } from '../core'
+import {
+  fitStandingZoom,
+  normalize,
+  radToDeg,
+  type Shot,
+  sub,
+  type Table,
+  type Vec2,
+} from '../core'
 import { BED_Y, MM_TO_M, toWorld } from './units'
 
 // Camera rigs (PLAN.md §2.11). All constants live here. The standing rig starts from the
@@ -27,9 +35,23 @@ export interface CameraPose {
 
 // V2 zoom framing: the pose comes from core's fitStandingZoom — the same math the
 // generator's frameability check uses, run at the actual viewport aspect. Maximum zoom
-// with the pocket + the whole placement region visible (docs/decisions.md).
-export function standingPose(shot: Shot, table: Table, aspect: number): CameraPose {
-  const fit = fitStandingZoom(shot.cue, shot.object, shot.pocketId, table, aspect)
+// with the pocket + the whole placement region visible; the look yaws to put the GHOST
+// at the horizontal screen centre while the zoom stays constant per shot (v2.2).
+export function standingPose(
+  shot: Shot,
+  table: Table,
+  aspect: number,
+  ghostPos?: Vec2,
+): CameraPose {
+  const fit = fitStandingZoom(
+    shot.cue,
+    shot.object,
+    shot.pocketId,
+    table,
+    aspect,
+    undefined,
+    ghostPos,
+  )
   const eye = new THREE.Vector3(
     fit.eye.x * MM_TO_M,
     BED_Y + fit.eye.z * MM_TO_M,
@@ -41,18 +63,123 @@ export function standingPose(shot: Shot, table: Table, aspect: number): CameraPo
   return { eye, target, fovDeg: fit.vFovDeg }
 }
 
-// Down-on-the-shot: eye behind C on the C→U line at rig height, looking at the ghost —
-// the camera re-sights along the aim as the guess changes (§5).
-export function downPose(shot: Shot, u: Vec2, table: Table, rig: DownRig): CameraPose {
+// Down-view pocket fit (v2.2): the pose must show the TARGET POCKET together with the
+// ghost + object ball. The eye stays ON the aim line behind the cue ball — that is the
+// stance's identity (in plan view eye, C and U are collinear, so the cue→ghost alignment
+// always reads as the aim) — while the look centres the required points' bounding box
+// and the FOV widens from the rig's natural value as needed.
+const DOWN_FIT = {
+  margin: 1.15, // slight margin around the required points
+  maxVFovDeg: 66, // widest before the view reads as fisheye
+  maxBehindM: 3.0, // furthest the eye dollies back along the aim line to make it fit
+}
+
+// Points the down view must frame: ghost + object ball (bottom, top, ±r sides) and the
+// pocket mouth. The cue ball needs no entry — it sits between the eye and the ghost and
+// lands in the lower foreground by construction.
+function downRequiredPoints(shot: Shot, u: Vec2, table: Table): THREE.Vector3[] {
+  const r = table.cfg.ballRadiusMm
+  const pts: THREE.Vector3[] = []
+  for (const c of [u, shot.object]) {
+    pts.push(toWorld(c, 0), toWorld(c, 2 * r))
+    pts.push(toWorld({ x: c.x + r, y: c.y }, r), toWorld({ x: c.x - r, y: c.y }, r))
+    pts.push(toWorld({ x: c.x, y: c.y + r }, r), toWorld({ x: c.x, y: c.y - r }, r))
+  }
+  const pk = table.pockets[shot.pocketId]
+  if (pk) pts.push(toWorld(pk.j1, 0), toWorld(pk.j2, 0), toWorld(pk.m, 0))
+  return pts
+}
+
+// Gnomonic box fit from a fixed eye (same scheme as core's fitStandingZoom): two
+// steering iterations centre the look on the bounding box, then the needed vertical
+// FOV falls out of the box extents at the viewport aspect.
+function fitDownView(
+  eye: THREE.Vector3,
+  ghostW: THREE.Vector3,
+  pts: THREE.Vector3[],
+  aspect: number,
+): { look: THREE.Vector3; neededVFovDeg: number } {
+  let forward = ghostW.clone().sub(eye).normalize()
+  const worldUp = new THREE.Vector3(0, 1, 0)
+  const v = new THREE.Vector3()
+  let tanH = 0
+  let tanV = 0
+  for (let iter = 0; iter < 2; iter++) {
+    const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize()
+    const up = new THREE.Vector3().crossVectors(right, forward)
+    let xMin = Number.POSITIVE_INFINITY
+    let xMax = Number.NEGATIVE_INFINITY
+    let yMin = Number.POSITIVE_INFINITY
+    let yMax = Number.NEGATIVE_INFINITY
+    for (const p of pts) {
+      v.copy(p).sub(eye)
+      const zc = v.dot(forward)
+      if (zc <= 0.01) return { look: forward, neededVFovDeg: Number.POSITIVE_INFINITY }
+      const xt = v.dot(right) / zc
+      const yt = v.dot(up) / zc
+      if (xt < xMin) xMin = xt
+      if (xt > xMax) xMax = xt
+      if (yt < yMin) yMin = yt
+      if (yt > yMax) yMax = yt
+    }
+    tanH = ((xMax - xMin) / 2) * DOWN_FIT.margin
+    tanV = ((yMax - yMin) / 2) * DOWN_FIT.margin
+    forward = forward
+      .add(right.multiplyScalar((xMin + xMax) / 2))
+      .add(up.multiplyScalar((yMin + yMax) / 2))
+      .normalize()
+  }
+  const neededVFovDeg = 2 * radToDeg(Math.atan(Math.max(tanV, tanH / aspect)))
+  return { look: forward, neededVFovDeg }
+}
+
+// Down-on-the-shot: eye behind C on the C→U line at rig height, re-sighting as the
+// guess changes (§5). v2.2: FOV widens up to DOWN_FIT.maxVFovDeg to include the pocket;
+// still too wide → dolly straight back along the aim line (receding narrows the angular
+// spread) up to maxBehindM; in the degenerate remainder (ultra-wide spreads on narrow
+// screens) fall back to the classic ghost-look pose — the edge chevron covers the pocket.
+export function downPose(
+  shot: Shot,
+  u: Vec2,
+  table: Table,
+  rig: DownRig,
+  aspect: number,
+): CameraPose {
   const r = table.cfg.ballRadiusMm
   const aim = normalize(sub(u, shot.cue))
-  const back = scale(aim, -rig.behindM / MM_TO_M)
-  const eye = new THREE.Vector3(
-    (shot.cue.x + back.x) * MM_TO_M,
-    BED_Y + rig.heightM,
-    (shot.cue.y + back.y) * MM_TO_M,
-  )
-  return { eye, target: toWorld(u, r), fovDeg: rig.fovDeg }
+  const aimW = new THREE.Vector3(aim.x, 0, aim.y)
+  const cueW = toWorld(shot.cue, r)
+  const ghostW = toWorld(u, r)
+  const eyeAt = (behindM: number): THREE.Vector3 =>
+    new THREE.Vector3(cueW.x - aimW.x * behindM, BED_Y + rig.heightM, cueW.z - aimW.z * behindM)
+  const pts = downRequiredPoints(shot, u, table)
+
+  let behind = rig.behindM
+  let fit = fitDownView(eyeAt(behind), ghostW, pts, aspect)
+  if (fit.neededVFovDeg > DOWN_FIT.maxVFovDeg) {
+    if (
+      fitDownView(eyeAt(DOWN_FIT.maxBehindM), ghostW, pts, aspect).neededVFovDeg >
+      DOWN_FIT.maxVFovDeg
+    ) {
+      return { eye: eyeAt(rig.behindM), target: ghostW, fovDeg: rig.fovDeg }
+    }
+    let lo = behind
+    let hi = DOWN_FIT.maxBehindM
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2
+      const f = fitDownView(eyeAt(mid), ghostW, pts, aspect)
+      if (f.neededVFovDeg > DOWN_FIT.maxVFovDeg) lo = mid
+      else {
+        hi = mid
+        fit = f
+      }
+    }
+    behind = hi
+  }
+  const eye = eyeAt(behind)
+  const fovDeg = Math.min(DOWN_FIT.maxVFovDeg, Math.max(rig.fovDeg, fit.neededVFovDeg))
+  const target = eye.clone().addScaledVector(fit.look, 2)
+  return { eye, target, fovDeg }
 }
 
 // Exponential smoothing toward a target pose — the down camera's ~150 ms damped follow

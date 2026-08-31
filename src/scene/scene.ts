@@ -31,6 +31,7 @@ export interface SceneCallbacks {
 
 const STANCE_TRANSITION_S = 0.4
 const DOWN_FOLLOW_TAU_S = 0.15
+const STANDING_REAIM_TAU_S = 0.3
 
 export class Scene3D {
   private renderer: THREE.WebGLRenderer
@@ -52,6 +53,7 @@ export class Scene3D {
   private activeAnim: { skip: () => void } | null = null
   private activeAnimTask: Task | null = null
   private lostContext = false
+  private standingDragging = false
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -92,6 +94,14 @@ export class Scene3D {
       camera: () => this.cam.camera,
       onDragPoint: cb.onDragPoint,
       onSwipe: (dx, dy) => cb.onSwipe(dx, dy),
+      // standing drag: freeze the ghost-follow yaw while the finger is down (re-aiming
+      // mid-drag would slide the table under it), then settle onto the ghost on release
+      onDragState: (active) => {
+        this.standingDragging = active
+        if (!active && this.state?.stance === 'standing' && this.state.phase === 'aiming') {
+          this.applyCamera(this.state, false, STANDING_REAIM_TAU_S)
+        }
+      },
     })
 
     canvas.addEventListener('webglcontextlost', (ev) => {
@@ -145,6 +155,9 @@ export class Scene3D {
       this.applyCamera(state, false, STANCE_TRANSITION_S)
     } else if (ghostChanged && state.stance === 'down') {
       this.applyCamera(state, false, DOWN_FOLLOW_TAU_S)
+    } else if (ghostChanged && state.stance === 'standing' && !this.standingDragging) {
+      // nudges / drag-release: yaw so the ghost returns to the horizontal centre (v2.2)
+      this.applyCamera(state, false, STANDING_REAIM_TAU_S)
     }
 
     // inset shows while aiming in the down stance (§2.6; settings can force on/off)
@@ -185,8 +198,8 @@ export class Scene3D {
     const aspect = this.cssW / Math.max(1, this.cssH)
     const pose =
       state.stance === 'standing'
-        ? standingPose(state.shot, this.table, aspect)
-        : downPose(state.shot, state.ghost, this.table, this.downRig)
+        ? standingPose(state.shot, this.table, aspect, state.ghost)
+        : downPose(state.shot, state.ghost, this.table, this.downRig, aspect)
     if (snap) this.cam.snapTo(pose)
     else this.cam.moveTo(pose, tau)
     this.invalidate()

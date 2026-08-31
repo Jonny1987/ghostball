@@ -11,6 +11,7 @@ const INSET_FRACTION = 0.4 // of canvas width
 
 export class ContactInset {
   private camera = new THREE.PerspectiveCamera(INSET_FOV, 1, 0.05, 30)
+  private side: 'left' | 'right' = 'right'
   visible = false
 
   render(
@@ -39,9 +40,25 @@ export class ContactInset {
     this.camera.lookAt(contact)
     this.camera.updateProjectionMatrix()
 
-    // top-right, below the top bar — clear of the chip (bottom-left) and nudge arrows
+    // top-right by default, below the top bar — clear of the chip (bottom-left) and the
+    // nudge arrows. v2.2: the down fit keeps the TARGET POCKET in frame, often near a top
+    // corner — if the current slot would cover it, flip to the opposite top corner. The
+    // switch only fires when the occupied slot is violated (hysteresis, no flip-flapping).
     const topBarPx = Math.round(size.y * 0.08)
-    const vx = size.x - px - margin
+    const pk = table.pockets[shot.pocketId]
+    if (pk) {
+      const ndc = toWorld(pk.m, 0).project(mainCamera)
+      if (ndc.z < 1) {
+        const pad = 0.06
+        const yBottom = 1 - (2 * (topBarPx + margin + px)) / size.y
+        const inY = ndc.y > yBottom - pad
+        const overRight = inY && ndc.x > 1 - (2 * (margin + px)) / size.x - pad
+        const overLeft = inY && ndc.x < -1 + (2 * (margin + px)) / size.x + pad
+        if (this.side === 'right' && overRight && !overLeft) this.side = 'left'
+        else if (this.side === 'left' && overLeft && !overRight) this.side = 'right'
+      }
+    }
+    const vx = this.side === 'right' ? size.x - px - margin : margin
     const vy = size.y - px - topBarPx - margin
     renderer.setScissorTest(true)
     renderer.setViewport(vx, vy, px, px)

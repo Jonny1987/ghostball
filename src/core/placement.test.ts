@@ -159,6 +159,56 @@ describe('v2 frameability over generated shots', () => {
   })
 })
 
+describe('v2.2 standing framing: the ghost itself is centred, the zoom never breathes', () => {
+  it('for any legal ghost position: ghost at centre-x, pocket in frame, FOV ghost-independent', () => {
+    const aspect = 390 / 844
+    const offsets = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [0.7, 0.7],
+      [-0.7, -0.7],
+    ] as const
+    for (const level of [1, 2, 3] as LevelId[]) {
+      for (let seed = 800; seed < 820; seed++) {
+        const s = generateShot(seed, level, T)
+        const base = fitStandingZoom(s.cue, s.object, s.pocketId, T, aspect)
+        for (const [dx, dy] of offsets) {
+          const g = vec(s.object.x + dx * maxCenterDistMm(r), s.object.y + dy * maxCenterDistMm(r))
+          const fit = fitStandingZoom(s.cue, s.object, s.pocketId, T, aspect, undefined, g)
+          const fwd = fit.look
+          const right = norm3(cross3(fwd, { x: 0, y: 0, z: 1 }))
+          const up = cross3(right, fwd)
+          const proj = (p: V3): { x: number; y: number } => {
+            const v = { x: p.x - fit.eye.x, y: p.y - fit.eye.y, z: p.z - fit.eye.z }
+            const zc = v.x * fwd.x + v.y * fwd.y + v.z * fwd.z
+            return {
+              x: (v.x * right.x + v.y * right.y + v.z * right.z) / zc,
+              y: (v.x * up.x + v.y * up.y + v.z * up.z) / zc,
+            }
+          }
+          // (a) the ghost projects to the horizontal screen centre
+          expect(Math.abs(proj({ x: g.x, y: g.y, z: r }).x)).toBeLessThan(0.02)
+          // (b) the zoom is EXACTLY constant per shot — the FOV pass never sees the
+          // ghost, so following it only yaws the camera
+          expect(fit.vFovDeg).toBe(base.vFovDeg)
+          // (c) the target pocket stays inside the frame at that fixed zoom
+          const pk = T.pockets[s.pocketId]
+          if (!pk) throw new Error('pocket missing')
+          const halfV = Math.tan(degToRad(fit.vFovDeg / 2))
+          for (const pp of [pk.j1, pk.j2, pk.m]) {
+            const t = proj({ x: pp.x, y: pp.y, z: 0 })
+            expect(Math.abs(t.x)).toBeLessThanOrEqual(halfV * aspect + 1e-6)
+            expect(Math.abs(t.y)).toBeLessThanOrEqual(halfV + 1e-6)
+          }
+        }
+      }
+    }
+  })
+})
+
 describe('v2.1 standing framing: ghost region horizontally centred', () => {
   it('the object ball (placement-region centre) projects to screen centre-x on every generated shot', () => {
     for (const level of [1, 2, 3] as LevelId[]) {
