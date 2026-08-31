@@ -117,6 +117,17 @@ Headless-verify note: drive scripts must wait for `__scene.cam.targetPose === nu
 (camera settled) before screenshotting — SwiftShader's low FPS plus the render loop's
 50 ms dt clamp stretches transitions ~10×, which mimics a broken pose.
 
+**v2.6 (2026-08-31, user decision):** first slice of the settings sheet — a ⚙ button in
+the top bar opens a popup with two toggles: show the ghost ball when standing / when
+down (both default on, persisted in `gb.settings.v1`). Turning one off makes that
+stance a *blind drill*: the ghost mesh, its dashed footprint ring and its contact
+shadow all disappear while aiming, but everything else is unchanged — the swipe/nudges
+still move the (invisible) placement, the contact chip stays live, the camera still
+centres on it, and the cue still points at it. From the reveal on, the guess always
+shows (that feedback is the point). The M5 "settings sheet UI" item is now partially
+closed; the remaining settings (sound, haptics, cue stick, chip, inset) still have no
+UI.
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)

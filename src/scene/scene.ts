@@ -128,7 +128,13 @@ export class Scene3D {
     // during ANIMATING/RESULT the submit animation owns the object ball's transform —
     // sync must not teleport it back to O or un-hide a potted ball (§2.12)
     const objectLive = state.phase === 'animating' || state.phase === 'result'
-    this.balls.sync(state.shot, state.ghost, showTruth, guessColored, !objectLive)
+    // v2.6: per-stance ghost visibility while aiming (blind drill); from the reveal on,
+    // the guess always shows — that feedback is the point of the exercise
+    const preReveal = state.phase === 'aiming' || state.phase === 'locked'
+    const showGhost =
+      !preReveal ||
+      (state.stance === 'standing' ? state.settings.ghostStanding : state.settings.ghostDown)
+    this.balls.sync(state.shot, state.ghost, showTruth, guessColored, !objectLive, showGhost)
     this.aids.setTargetPocket(state.shot.pocketId)
 
     if (state.phase === 'aiming' && (shotChanged || (prev && prev.phase !== 'aiming'))) {

@@ -1,4 +1,5 @@
 import { COARSE_STEP_MM, FINE_STEP_MM, fullnessBand, radToDeg } from '../core'
+import type { Settings } from './storage'
 import type { Store } from './store'
 
 // HUD per PLAN.md §5: bottom bar ◀ SUBMIT ▶, contact chip, hold-to-peek, top bar.
@@ -19,6 +20,7 @@ export interface HudCallbacks {
   onPeek: (active: boolean) => void
   onStance: (stance: 'standing' | 'down') => void
   onLevel: (level: 1 | 2 | 3) => void
+  onSetting: (patch: Partial<Settings>) => void
 }
 
 export interface HudElements {
@@ -56,7 +58,48 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   const streak = el('div', 'pill streak-chip', 'streak 0')
   const seedChip = el('div', 'pill seed-chip', '')
   seedChip.id = 'seed-chip'
-  top.append(levelPill, streak, seedChip)
+  const gear = el('button', 'pill settings-btn', '⚙')
+  gear.setAttribute('aria-label', 'settings')
+  top.append(levelPill, streak, seedChip, gear)
+
+  // settings popup (v2.6): per-stance ghost-ball visibility
+  const backdrop = el('div', 'settings-backdrop')
+  backdrop.hidden = true
+  const settingsPop = el('div', 'settings-popup')
+  settingsPop.hidden = true
+  settingsPop.setAttribute('role', 'dialog')
+  settingsPop.setAttribute('aria-label', 'settings')
+  const settingRow = (label: string): { row: HTMLLabelElement; input: HTMLInputElement } => {
+    const row = el('label', 'settings-row')
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    row.append(input, el('span', '', label))
+    return { row, input }
+  }
+  const ghostStandingRow = settingRow('Show when standing')
+  const ghostDownRow = settingRow('Show when down')
+  settingsPop.append(
+    el('div', 'settings-title', 'Ghost ball'),
+    ghostStandingRow.row,
+    ghostDownRow.row,
+  )
+  ghostStandingRow.input.checked = store.get().settings.ghostStanding
+  ghostDownRow.input.checked = store.get().settings.ghostDown
+  const closeSettings = (): void => {
+    settingsPop.hidden = true
+    backdrop.hidden = true
+  }
+  gear.addEventListener('click', () => {
+    settingsPop.hidden = !settingsPop.hidden
+    backdrop.hidden = settingsPop.hidden
+  })
+  backdrop.addEventListener('click', closeSettings)
+  ghostStandingRow.input.addEventListener('change', () =>
+    cb.onSetting({ ghostStanding: ghostStandingRow.input.checked }),
+  )
+  ghostDownRow.input.addEventListener('change', () =>
+    cb.onSetting({ ghostDown: ghostDownRow.input.checked }),
+  )
 
   // stance control
   const stanceControl = el('div', 'stance-control')
@@ -90,7 +133,7 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   arrowRight.setAttribute('aria-label', 'nudge ghost ball right')
   bottom.append(arrowLeft, submit, arrowRight)
 
-  root.append(top, stanceControl, chipRow, vertical, bottom)
+  root.append(top, stanceControl, chipRow, vertical, bottom, backdrop, settingsPop)
   container.append(root)
 
   bindArrow(arrowLeft, 'left', store, cb)
@@ -152,6 +195,8 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
       if (state.phase === 'result') cb.onNext()
     } else if (ev.key === 'r' || ev.key === 'R') {
       if (state.phase === 'result') cb.onRetry()
+    } else if (ev.key === 'Escape') {
+      closeSettings()
     }
   })
 
@@ -168,6 +213,8 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
     void fullness
     streak.textContent = `streak ${currentStreak(store)}`
     levelPill.textContent = ['', 'Straight-ish', 'Club', 'Sharp'][state.level] ?? 'Club'
+    ghostStandingRow.input.checked = state.settings.ghostStanding
+    ghostDownRow.input.checked = state.settings.ghostDown
     standingBtn.classList.toggle('active', state.stance === 'standing')
     downBtn.classList.toggle('active', state.stance === 'down')
     submit.textContent = state.phase === 'result' ? 'NEXT' : 'SUBMIT'

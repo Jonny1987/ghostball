@@ -296,6 +296,12 @@ function boot(): void {
       store.set({ settings: nextSettings })
       nextShot(lvl)
     },
+    onSetting: (patch) => {
+      const s = store.get()
+      const nextSettings = { ...s.settings, ...patch }
+      saveSettings(nextSettings)
+      store.set({ settings: nextSettings })
+    },
   })
 
   feedback.onNext = () => nextShot()

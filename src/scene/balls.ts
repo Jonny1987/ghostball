@@ -133,6 +133,7 @@ export class Balls {
     showTruth: boolean,
     userAsGuessColor: boolean,
     touchObject = true,
+    showGhost = true,
   ): void {
     this.place(this.cue, shot.cue)
     if (touchObject) {
@@ -142,7 +143,12 @@ export class Balls {
       this.object.quaternion.identity()
     }
 
+    // v2.6: the ghost can be hidden per stance while aiming (blind drill) — the mesh,
+    // its dashed footprint ring, and its contact shadow all go; the position keeps
+    // syncing so nudges/chip/camera behave identically and the reveal shows the guess.
     const u = ghostPos
+    this.ghost.visible = showGhost
+    this.ghostRing.visible = showGhost
     this.place(this.ghost, u)
     this.ghostRing.position.set(this.ghost.position.x, BED_Y + 0.001, this.ghost.position.z)
 

@@ -10,6 +10,10 @@ export interface Settings {
   cueStick: boolean
   contactChip: boolean
   inset: 'auto' | 'on' | 'off'
+  // v2.6: hide the ghost ball per stance while aiming (harder drill — aim blind, the
+  // reveal still shows where you placed it); movement/nudges/chip stay fully live.
+  ghostStanding: boolean
+  ghostDown: boolean
 }
 
 export interface AttemptRecord {
@@ -43,6 +47,8 @@ export const DEFAULT_SETTINGS: Settings = {
   cueStick: true,
   contactChip: true,
   inset: 'auto',
+  ghostStanding: true,
+  ghostDown: true,
 }
 
 export const emptyLevelStats = (): LevelStats => ({
