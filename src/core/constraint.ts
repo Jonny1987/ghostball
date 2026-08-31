@@ -151,19 +151,19 @@ export const COARSE_STEP_MM = 1.0
 
 // ---------------------------------------------------------------------------
 // v2.8 lateral mode (docs/decisions.md): the ghost is constrained to the line
-// PERPENDICULAR to the cue→object line, through the full-ball touching point
-// G0 = O + 2r·(C−O)/|C−O| — the classic fractional-aiming drill. Only the
-// side-to-side (cut) judgement is exercised; the touching depth is the line's.
+// PERPENDICULAR to the cue→object line, THROUGH THE OBJECT BALL — the ghost sits
+// side-by-side with O (overlapping it fully at the centre). Only the side-to-side
+// (cut) judgement is exercised.
 
 export interface LateralAxis {
-  anchor: Vec2 // G0, the full-ball ghost position
+  anchor: Vec2 // the object ball centre — the line passes through O
   dir: Vec2 // unit vector along the lateral line (perpendicular to C→O)
 }
 
-export function lateralAxis(cue: Vec2, object: Vec2, ballRadiusMm: number): LateralAxis {
+export function lateralAxis(cue: Vec2, object: Vec2, _ballRadiusMm: number): LateralAxis {
   const toCue = normalize(sub(cue, object))
   return {
-    anchor: add(object, scale(toCue, 2 * ballRadiusMm)),
+    anchor: object,
     dir: { x: -toCue.y, y: toCue.x },
   }
 }
@@ -174,15 +174,15 @@ export function lateralOffset(p: Vec2, axis: LateralAxis): number {
 }
 
 // Clamp a desired position onto the lateral line: project, then bound the offset so the
-// ghost stays inside the same placement disc as free mode (|U−O| ≤ maxCenterDist ⇒
-// |x| ≤ √(maxDist² − 4r²)) and inside the table box.
+// ghost stays inside the same placement disc as free mode (the line passes through O,
+// so |x| = |U−O| ≤ maxCenterDist directly) and inside the table box.
 export function clampLateral(p: Vec2, cue: Vec2, object: Vec2, table: Table): Vec2 {
   const { cfg } = table
   const r = cfg.ballRadiusMm
   const axis = lateralAxis(cue, object, r)
   const maxD = maxCenterDistMm(r)
-  let lo = -Math.sqrt(Math.max(0, maxD * maxD - 4 * r * r))
-  let hi = -lo
+  let lo = -maxD
+  let hi = maxD
   const axisBounds = (a: number, d: number, min: number, max: number): [number, number] => {
     if (Math.abs(d) < 1e-9) return [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
     const t1 = (min - a) / d

@@ -76,6 +76,9 @@ export class Balls {
 
     const cueMat = ballMaterial(COLOR.cue)
     this.cue = new THREE.Mesh(sphere, cueMat)
+    // drawn after the ghost so it re-claims its pixels by depth even when the ghost
+    // ignores the depth test (lateral-mode obscure override, v2.8) — harmless otherwise
+    this.cue.renderOrder = 4
 
     const objMat = ballMaterial(COLOR.object)
     objMat.map = marbleTexture('#c0392b')
@@ -135,6 +138,7 @@ export class Balls {
     touchObject = true,
     showGhost = true,
     glassyGhost = false,
+    ghostOverObject = false,
   ): void {
     this.place(this.cue, shot.cue)
     if (touchObject) {
@@ -156,11 +160,15 @@ export class Balls {
     const mat = this.ghost.material as THREE.MeshPhysicalMaterial
     mat.color.setHex(userAsGuessColor ? COLOR.user : COLOR.ghost)
     // v2.8 semi-transparent option: with it on, an overlapped object ball shows through
-    // (no depth write, drawn late); opaque, the nearer ghost naturally obscures it.
+    // (no depth write, drawn late). Opaque in LATERAL mode, the ghost interpenetrates O
+    // (the line runs through it) — ghostOverObject skips the depth test so the ghost
+    // paints fully over the object ball, writing true depth so the cue ball and stick
+    // (renderOrder 4) still resolve correctly in front.
     mat.transparent = glassyGhost
     mat.opacity = glassyGhost ? 0.55 : 1
     mat.depthWrite = !glassyGhost
-    this.ghost.renderOrder = glassyGhost ? 3 : 0
+    mat.depthTest = !ghostOverObject
+    this.ghost.renderOrder = glassyGhost ? 3 : ghostOverObject ? 2 : 0
 
     if (showTruth) {
       const pk = this.table.pockets[shot.pocketId]
