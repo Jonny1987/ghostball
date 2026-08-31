@@ -1,6 +1,5 @@
 import {
   clamp,
-  clampPlacement,
   computeResult,
   cutAngle,
   DEFAULT_TABLE,
@@ -31,7 +30,7 @@ import { Store } from './ui/store'
 const table = DEFAULT_TABLE
 const LOCKED_MS = 150
 const REVEAL_MS = 650
-const SWIPE_MM_PER_PX = 0.15 // down-view relative swipe sensitivity
+const SWIPE_MM_PER_PX = 0.15 // relative swipe sensitivity, both stances (v2.3)
 
 interface UrlParams {
   seed: number | null
@@ -131,11 +130,6 @@ function boot(): void {
   app.append(canvasWrap)
 
   const scene = new Scene3D(canvas, canvasWrap, table, {
-    onDragPoint: (p) => {
-      const s = store.get()
-      if (s.phase !== 'aiming') return
-      store.set({ ghost: clampPlacement(p, s.shot.object, table) })
-    },
     onSwipe: (dxPx, dyPx) => {
       const s = store.get()
       if (s.phase !== 'aiming') return

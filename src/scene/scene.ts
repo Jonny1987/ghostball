@@ -25,13 +25,11 @@ import { toWorld } from './units'
 // objects. It is a projection of store state; it never owns game state.
 
 export interface SceneCallbacks {
-  onDragPoint: (p: Vec2) => void
-  onSwipe: (dxPx: number, dyPx: number) => void // down-view relative swipe, both axes
+  onSwipe: (dxPx: number, dyPx: number) => void // relative swipe, both stances (v2.3)
 }
 
 const STANCE_TRANSITION_S = 0.4
-const DOWN_FOLLOW_TAU_S = 0.15
-const STANDING_REAIM_TAU_S = 0.3
+const FOLLOW_TAU_S = 0.15 // damped ghost-follow, both stances
 
 export class Scene3D {
   private renderer: THREE.WebGLRenderer
@@ -53,7 +51,6 @@ export class Scene3D {
   private activeAnim: { skip: () => void } | null = null
   private activeAnimTask: Task | null = null
   private lostContext = false
-  private standingDragging = false
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -86,22 +83,9 @@ export class Scene3D {
     this.cueStick = stick
     this.scene.add(stick)
 
-    bindInput(canvas, table, {
-      stance: () => this.state?.stance ?? 'standing',
+    bindInput(canvas, {
       aiming: () => this.state?.phase === 'aiming',
-      shot: () => (this.state as AppState).shot,
-      ghost: () => (this.state as AppState).ghost,
-      camera: () => this.cam.camera,
-      onDragPoint: cb.onDragPoint,
       onSwipe: (dx, dy) => cb.onSwipe(dx, dy),
-      // standing drag: freeze the ghost-follow yaw while the finger is down (re-aiming
-      // mid-drag would slide the table under it), then settle onto the ghost on release
-      onDragState: (active) => {
-        this.standingDragging = active
-        if (!active && this.state?.stance === 'standing' && this.state.phase === 'aiming') {
-          this.applyCamera(this.state, false, STANDING_REAIM_TAU_S)
-        }
-      },
     })
 
     canvas.addEventListener('webglcontextlost', (ev) => {
@@ -153,11 +137,10 @@ export class Scene3D {
       this.applyCamera(state, true)
     } else if (stanceChanged) {
       this.applyCamera(state, false, STANCE_TRANSITION_S)
-    } else if (ghostChanged && state.stance === 'down') {
-      this.applyCamera(state, false, DOWN_FOLLOW_TAU_S)
-    } else if (ghostChanged && state.stance === 'standing' && !this.standingDragging) {
-      // nudges / drag-release: yaw so the ghost returns to the horizontal centre (v2.2)
-      this.applyCamera(state, false, STANDING_REAIM_TAU_S)
+    } else if (ghostChanged) {
+      // both stances follow the ghost continuously: down re-sights along the aim,
+      // standing yaws to keep the ghost at the horizontal screen centre (v2.3)
+      this.applyCamera(state, false, FOLLOW_TAU_S)
     }
 
     // inset shows while aiming in the down stance (§2.6; settings can force on/off)

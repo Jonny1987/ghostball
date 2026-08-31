@@ -76,6 +76,18 @@ to the opposite top corner when its slot would cover the pocket (hysteresis — 
 moves when its own slot is violated). GENERATOR_VERSION → 4 (the standing FOV now
 includes the wander slack, which changes frameability check 6).
 
+**v2.3 (2026-08-31, user decision):** the standing view keeps the ghost centred
+*continuously* — the v2.2 drag-freeze is gone. That freeze was only needed because the
+standing drag was absolute (finger→table through the camera: yawing mid-drag fed back
+into the mapping). Per the owner, the standing drag is now the SAME relative swipe as
+the down view: dragging anywhere on the screen moves the ghost by screen-space deltas
+(0.15 mm/px through the current camera's screen axes), so a continuously following
+camera is stable by construction. Both stances now share one input path and one
+ghost-follow tau (0.15 s). Retired with the absolute drag: the 48 px grab radius, the
+80 px finger lift + 250 ms ramp, and the `onDragPoint`/`onDragState` callbacks. The M2
+feel-constants tuning gate below shrinks accordingly (only hold-repeat timings and the
+follow tau remain to be hand-tuned).
+
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 
 ## Implementation state (2026-08-30)
