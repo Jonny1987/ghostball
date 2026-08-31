@@ -18,7 +18,7 @@ import {
 import { PocketChevron } from './chevron'
 import { bindInput } from './input'
 import { ContactInset } from './inset'
-import { BED_Y, MM_TO_M, toWorld } from './units'
+import { toWorld } from './units'
 
 // Scene orchestrator (PLAN.md §3): owns the renderer, the render-on-demand loop (§2.1 —
 // zero idle rAF; the loop runs only while dirty or animating), cameras, and all scene
