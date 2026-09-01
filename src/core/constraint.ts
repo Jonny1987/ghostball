@@ -150,7 +150,38 @@ export const FINE_STEP_MM = 0.25
 export const COARSE_STEP_MM = 1.0
 
 // ---------------------------------------------------------------------------
-// v2.8 lateral mode (docs/decisions.md): the ghost is constrained to the line
+// v2.9 touching mode (docs/decisions.md, replacing the short-lived lateral mode): the
+// ghost is constrained to the TOUCHING CIRCLE |U−O| = 2r, clamped to the reachable arc
+// (the v1 constraint machinery above) — every position is a genuine contact the cue
+// ball can reach. The true ghost lies ON this circle, so grading needs no special case.
+
+export function clampTouching(p: Vec2, cue: Vec2, object: Vec2, table: Table): Vec2 {
+  const r = table.cfg.ballRadiusMm
+  const v = sub(p, object)
+  const theta = len(v) < EPS ? reachableArc(object, cue, table).thetaC : Math.atan2(v.y, v.x)
+  return ghostAt(clampToReachable(theta, object, cue, table), object, r)
+}
+
+// Touching-mode nudge: the delta's tangential component slides the ghost around the
+// circle; the bump (atLimit) fires when a real tangential step was absorbed by the
+// reachable-arc / table clamp.
+export function nudgeTouching(
+  pos: Vec2,
+  delta: Vec2,
+  cue: Vec2,
+  object: Vec2,
+  table: Table,
+): NudgePosResult {
+  const target = { x: pos.x + delta.x, y: pos.y + delta.y }
+  const clamped = clampTouching(target, cue, object, table)
+  const rad = normalize(sub(pos, object))
+  const want = Math.abs(-rad.y * delta.x + rad.x * delta.y)
+  const moved = Math.hypot(clamped.x - pos.x, clamped.y - pos.y)
+  return { pos: clamped, atLimit: want > 1e-9 && moved < want * 0.5 }
+}
+
+// ---------------------------------------------------------------------------
+// Perpendicular (lateral) placement restriction: the ghost is constrained to the line
 // PERPENDICULAR to the cue→object line, THROUGH THE OBJECT BALL — the ghost sits
 // side-by-side with O (overlapping it fully at the centre). Only the side-to-side
 // (cut) judgement is exercised.
@@ -197,7 +228,7 @@ export function clampLateral(p: Vec2, cue: Vec2, object: Vec2, table: Table): Ve
   return add(axis.anchor, scale(axis.dir, x))
 }
 
-// Lateral-mode nudge: only the delta's along-line component moves the ghost; the bump
+// Lateral nudge: only the delta's along-line component moves the ghost; the bump
 // (atLimit) fires when a real along-line step was absorbed by the clamp.
 export function nudgeLateral(
   pos: Vec2,

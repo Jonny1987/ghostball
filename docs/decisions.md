@@ -141,22 +141,28 @@ canonical aim AND eight extreme ghost placements must all fit within the FOV cap
 reference aspect, so every legal placement keeps the pocket + cue ball in frame — now
 generation-guaranteed rather than slack-approximated. GENERATOR_VERSION → 6.
 
-**v2.8 (2026-08-31, user decision):** two more settings. (1) **Lateral mode** ("Drill"
-section): the ghost only slides along the line PERPENDICULAR to the cue→object line,
-THROUGH THE OBJECT BALL — the ghost sits side-by-side with O, overlapping it fully at
-the centre (first cut anchored the line at the full-ball point in front of O; the owner
-corrected it to run through O itself). Swipes and ◀▶ project onto the line, ▲▼ hide,
-spawns/toggles snap onto it. Grading is made fair in 1D: the true ghost is off the axis
-for every cut, so "perfect" is graded against the point where the TRUE AIM LINE crosses
-the axis (same aim line ⇒ same effective contact ⇒ pots dead centre; physics already
-forgives depth error along the aim line). Free-mode grading unchanged.
-(2) **Semi-transparent ghost**: opacity 0.55, no depth write, drawn late — an
-overlapped object ball stays visible through the ghost; applies while aiming, opaque
-from the reveal (amber-vs-truth readability). With it off in lateral mode the ghost
-INTERPENETRATES O, so "ghost always obscures the object ball" needs an explicit render
-override: the ghost skips the depth test (drawn after the object ball, still writing
-true depth), and the cue ball + stick draw last at renderOrder 4 so they keep resolving
-correctly in front of it.
+**v2.8 (2026-08-31, user decision):** a **semi-transparent ghost** setting: opacity
+0.55, no depth write, drawn late — an overlapped object ball stays visible through the
+ghost; applies while aiming, opaque from the reveal (amber-vs-truth readability). (This
+entry also introduced a "lateral mode" drill — perpendicular-line placement — which the
+owner replaced the same day; see v2.9.)
+
+**v2.9 (2026-09-01, user decision):** the drill geometries are unified under one
+**"Placement restriction" dropdown** (they are mutually exclusive): **Anywhere** (the
+free disc — default), **Perpendicular** (the lateral line through the object ball,
+perpendicular to the cue→object line), and **Touching** (the 2r circle on the reachable
+arc, the v1 constraint machinery — still golden-tested). Movement dispatches by mode
+(swipes/nudges project onto the active constraint; ▲▼ hide only in perpendicular, where
+they are meaningless); spawns and mode changes snap the ghost onto the active
+constraint. Grading: perpendicular grades against the point where the TRUE AIM LINE
+crosses its line (G_true is off that line for every cut — same aim line ⇒ same
+effective contact ⇒ pots dead centre); anywhere and touching grade against G_true
+directly (it lies on the touching circle, so "perfect" is reachable there without any
+special case). Opaque + perpendicular keeps the render override (ghost skips the depth
+test over the interpenetrating object ball; cue + stick draw last at renderOrder 4);
+touching never interpenetrates, so it renders plainly. An interim revision briefly
+REPLACED the lateral drill with touching before the owner asked for both in the
+dropdown; that revision was amended away.
 
 PLAN.md §2.4/§2.6/§4 describe the v1 model and are superseded on these points by this entry.
 

@@ -1,5 +1,5 @@
 import { COARSE_STEP_MM, FINE_STEP_MM, fullnessBand, radToDeg } from '../core'
-import type { Settings } from './storage'
+import type { PlacementMode, Settings } from './storage'
 import type { Store } from './store'
 
 // HUD per PLAN.md §5: bottom bar ◀ SUBMIT ▶, contact chip, hold-to-peek, top bar.
@@ -79,19 +79,33 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   const ghostStandingRow = settingRow('Show when standing')
   const ghostDownRow = settingRow('Show when down')
   const glassRow = settingRow('Semi-transparent')
-  const lateralRow = settingRow('Lateral-only movement')
+  // Placement restriction: mutually exclusive drill geometries in one dropdown (v2.9)
+  const placementRow = el('label', 'settings-row settings-select-row')
+  const placementSelect = document.createElement('select')
+  placementSelect.className = 'settings-select'
+  for (const [value, label] of [
+    ['anywhere', 'Anywhere'],
+    ['perpendicular', 'Perpendicular'],
+    ['touching', 'Touching'],
+  ] as const) {
+    const opt = document.createElement('option')
+    opt.value = value
+    opt.textContent = label
+    placementSelect.append(opt)
+  }
+  placementRow.append(el('span', '', 'Placement restriction'), placementSelect)
   settingsPop.append(
     el('div', 'settings-title', 'Ghost ball'),
     ghostStandingRow.row,
     ghostDownRow.row,
     glassRow.row,
     el('div', 'settings-title', 'Drill'),
-    lateralRow.row,
+    placementRow,
   )
   ghostStandingRow.input.checked = store.get().settings.ghostStanding
   ghostDownRow.input.checked = store.get().settings.ghostDown
   glassRow.input.checked = store.get().settings.ghostTransparent
-  lateralRow.input.checked = store.get().settings.lateralMode
+  placementSelect.value = store.get().settings.placement
   const closeSettings = (): void => {
     settingsPop.hidden = true
     backdrop.hidden = true
@@ -110,8 +124,8 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   glassRow.input.addEventListener('change', () =>
     cb.onSetting({ ghostTransparent: glassRow.input.checked }),
   )
-  lateralRow.input.addEventListener('change', () =>
-    cb.onSetting({ lateralMode: lateralRow.input.checked }),
+  placementSelect.addEventListener('change', () =>
+    cb.onSetting({ placement: placementSelect.value as PlacementMode }),
   )
 
   // stance control
@@ -136,7 +150,7 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
   const arrowDown = el('button', 'arrow-btn arrow-small', '▼')
   arrowDown.setAttribute('aria-label', 'nudge ghost ball down')
   vertical.append(arrowUp, arrowDown)
-  vertical.hidden = store.get().settings.lateralMode
+  vertical.hidden = store.get().settings.placement === 'perpendicular'
 
   // bottom bar
   const bottom = el('div', 'hud-bottom')
@@ -230,9 +244,9 @@ export function buildHud(container: HTMLElement, store: Store, cb: HudCallbacks)
     ghostStandingRow.input.checked = state.settings.ghostStanding
     ghostDownRow.input.checked = state.settings.ghostDown
     glassRow.input.checked = state.settings.ghostTransparent
-    lateralRow.input.checked = state.settings.lateralMode
-    // lateral mode: only along-the-line movement exists, so the ▲▼ pair is meaningless
-    vertical.hidden = state.settings.lateralMode
+    placementSelect.value = state.settings.placement
+    // perpendicular: only along-the-line movement exists — the ▲▼ pair is meaningless
+    vertical.hidden = state.settings.placement === 'perpendicular'
     standingBtn.classList.toggle('active', state.stance === 'standing')
     downBtn.classList.toggle('active', state.stance === 'down')
     submit.textContent = state.phase === 'result' ? 'NEXT' : 'SUBMIT'

@@ -14,13 +14,15 @@ export interface Settings {
   // reveal still shows where you placed it); movement/nudges/chip stay fully live.
   ghostStanding: boolean
   ghostDown: boolean
-  // v2.8: lateral drill — the ghost only slides on the line perpendicular to the
-  // cue→object line (through the full-ball touching point).
-  lateralMode: boolean
-  // v2.8: semi-transparent ghost so an overlapping object ball stays visible; when off,
-  // the (nearer) ghost naturally obscures the object ball.
+  // v2.9: placement restriction — the three drill geometries are mutually exclusive:
+  // 'anywhere' (free disc), 'perpendicular' (lateral line through O), 'touching'
+  // (the 2r circle on the reachable arc).
+  placement: PlacementMode
+  // v2.8: semi-transparent ghost so an overlapping object ball stays visible through it.
   ghostTransparent: boolean
 }
+
+export type PlacementMode = 'anywhere' | 'perpendicular' | 'touching'
 
 export interface AttemptRecord {
   errMm: number
@@ -55,7 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inset: 'auto',
   ghostStanding: true,
   ghostDown: true,
-  lateralMode: false,
+  placement: 'anywhere',
   ghostTransparent: false,
 }
 

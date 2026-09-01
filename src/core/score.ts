@@ -114,9 +114,10 @@ export interface ScoreInput {
   cue: Vec2
   object: Vec2
   targetPocketId: number
-  // v2.8 lateral mode: the guess lives on the lateral axis, so grade the distance to
-  // the axis's own perfect point (where the true aim line crosses it) instead of to
-  // G_true, which is off the axis for every cut and would make "perfect" unreachable.
+  // Perpendicular restriction: the guess lives on the lateral axis, so grade the
+  // distance to the axis's own perfect point (where the true aim line crosses it) —
+  // G_true is off the axis for every cut, which would make "perfect" unreachable.
+  // The touching restriction needs no flag: G_true lies on the touching circle.
   lateral?: boolean
 }
 

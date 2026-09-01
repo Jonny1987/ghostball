@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   clampLateral,
   clampPlacement,
+  clampTouching,
   frameRadiusMm,
   ghostAt,
   lateralAxis,
   maxCenterDistMm,
   nudgeLateral,
   nudgePos,
+  nudgeTouching,
 } from './constraint'
 import { fitStandingZoom, standingFrameCheck } from './framecheck'
 import { generateShot } from './generate'
@@ -168,16 +170,14 @@ describe('v2 frameability over generated shots', () => {
   })
 })
 
-describe('v2.8 lateral mode', () => {
-  it('clampLateral keeps any point on the perpendicular line, inside disc and table', () => {
+describe('perpendicular (lateral) placement restriction', () => {
+  it('clampLateral keeps any point on the perpendicular line through O, inside the disc', () => {
     const axis = lateralAxis(C, O, r)
-    const aim = { x: -axis.dir.y, y: axis.dir.x } // unit along C→O plane normal to dir
+    const aim = { x: -axis.dir.y, y: axis.dir.x } // unit normal to the line (along C-O)
     for (const p of [vec(700, 500), vec(300, 100), O, vec(O.x + 500, O.y - 500)]) {
       const q = clampLateral(p, C, O, T)
-      // on the line: no component along the aim direction from the anchor
       const off = (q.x - axis.anchor.x) * aim.x + (q.y - axis.anchor.y) * aim.y
       expect(Math.abs(off)).toBeLessThan(1e-9)
-      // inside the placement disc around O
       expect(dist(q, O)).toBeLessThanOrEqual(maxCenterDistMm(r) + 1e-9)
     }
   })
@@ -185,15 +185,15 @@ describe('v2.8 lateral mode', () => {
   it('nudgeLateral moves only along the line; perpendicular deltas are inert, bounds bump', () => {
     const axis = lateralAxis(C, O, r)
     const start = axis.anchor
-    const along = nudgeLateral(start, scale2(axis.dir, 5), C, O, T)
+    const along = nudgeLateral(start, { x: axis.dir.x * 5, y: axis.dir.y * 5 }, C, O, T)
     expect(dist(along.pos, start)).toBeCloseTo(5, 6)
     expect(along.atLimit).toBe(false)
     const perp = nudgeLateral(start, { x: -axis.dir.y * 5, y: axis.dir.x * 5 }, C, O, T)
     expect(dist(perp.pos, start)).toBeLessThan(1e-9)
-    expect(perp.atLimit).toBe(false) // no along-line intent — no bump
+    expect(perp.atLimit).toBe(false) // no along-line intent - no bump
     const wall = nudgeLateral(
       clampLateral(vec(O.x, O.y + 999), C, O, T),
-      scale2(axis.dir, 50),
+      { x: axis.dir.x * 50, y: axis.dir.y * 50 },
       C,
       O,
       T,
@@ -201,7 +201,7 @@ describe('v2.8 lateral mode', () => {
     expect(wall.atLimit).toBe(true)
   })
 
-  it('lateralTruth is on the axis, and placing there pots with a perfect lateral grade', () => {
+  it('lateralTruth is on the axis; placing there pots and grades perfect; 5mm off is 5mm', () => {
     const pkX = T.pockets[0]
     if (!pkX) throw new Error('pocket 0 missing')
     const X = lateralTruth(C, O, pkX, cfg)
@@ -216,7 +216,6 @@ describe('v2.8 lateral mode', () => {
     expect(res.potted).toBe(true)
     expect(res.positionErrorMm).toBeLessThan(1e-6)
     expect(res.band).toBe('perfect')
-    // 5 mm off along the line grades as exactly 5 mm
     const off5 = computeResult(
       {
         ghostPos: vec(X.x + axis.dir.x * 5, X.y + axis.dir.y * 5),
@@ -231,9 +230,46 @@ describe('v2.8 lateral mode', () => {
   })
 })
 
-function scale2(v: { x: number; y: number }, s: number): { x: number; y: number } {
-  return { x: v.x * s, y: v.y * s }
-}
+describe('v2.9 touching mode', () => {
+  it('clampTouching puts any point at exactly 2r from O, on the reachable arc', () => {
+    for (const p of [vec(700, 500), O, vec(O.x - 500, O.y), vec(1200, 200), vec(O.x, O.y + 3)]) {
+      const q = clampTouching(p, C, O, T)
+      expect(dist(q, O)).toBeCloseTo(2 * r, 9)
+      // reachable: dot(U−O, C−O) > 4r² up to the arc-edge epsilon
+      const d = (q.x - O.x) * (C.x - O.x) + (q.y - O.y) * (C.y - O.y)
+      expect(d).toBeGreaterThan(4 * r * r * (1 - 1e-6))
+    }
+  })
+
+  it('nudgeTouching slides along the circle; the reachable-arc edge bumps', () => {
+    const start = ghostAt(0, O, r) // C is at +x from O, so θ=0 is the full-ball point
+    const res = nudgeTouching(start, { x: 0, y: 2 }, C, O, T)
+    expect(dist(res.pos, O)).toBeCloseTo(2 * r, 9)
+    expect(dist(res.pos, start)).toBeGreaterThan(1.5)
+    expect(res.atLimit).toBe(false)
+    // a purely radial delta has no tangential intent — inert, no bump
+    const radial = nudgeTouching(start, { x: 5, y: 0 }, C, O, T)
+    expect(dist(radial.pos, start)).toBeLessThan(1e-9)
+    expect(radial.atLimit).toBe(false)
+    // walk to the reachable-arc edge, then one more step must bump
+    let cur = start
+    for (let i = 0; i < 100; i++) cur = nudgeTouching(cur, { x: 0, y: 5 }, C, O, T).pos
+    const pinned = nudgeTouching(cur, { x: 0, y: 5 }, C, O, T)
+    expect(pinned.atLimit).toBe(true)
+    expect(dist(pinned.pos, O)).toBeCloseTo(2 * r, 9)
+  })
+
+  it('the true ghost lies on the touching circle, so normal grading reaches perfect', () => {
+    const pkX = T.pockets[0]
+    if (!pkX) throw new Error('pocket 0 missing')
+    const G = trueGhost(O, pkX, cfg)
+    // snapping the truth to the circle is a no-op — it is already a touching position
+    expect(dist(clampTouching(G, C, O, T), G)).toBeLessThan(1e-6)
+    const res = computeResult({ ghostPos: G, cue: C, object: O, targetPocketId: 0 }, T)
+    expect(res.potted).toBe(true)
+    expect(res.band).toBe('perfect')
+  })
+})
 
 describe('v2.7 standing framing: eye on the aim line — cue ball AND ghost centred', () => {
   it('for any legal ghost position: cue + ghost at centre-x, pocket and cue ball in frame', () => {

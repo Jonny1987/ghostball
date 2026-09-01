@@ -28,8 +28,8 @@ export function departureDir(object: Vec2, ghostPos: Vec2): Vec2 {
   return normalize(sub(object, ghostPos))
 }
 
-// v2.8 lateral mode: the perfect placement ON the lateral axis — where the TRUE aim
-// line (C → G_true) crosses it. Same aim line as the true ghost ⇒ same effective
+// Perpendicular restriction: the perfect placement ON the lateral axis — where the TRUE
+// aim line (C → G_true) crosses it. Same aim line as the true ghost ⇒ same effective
 // contact ⇒ pots dead centre (physics forgives depth error along the aim line).
 export function lateralTruth(cue: Vec2, object: Vec2, pocket: Pocket, cfg: TableConfig): Vec2 {
   const g = trueGhost(object, pocket, cfg)

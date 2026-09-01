@@ -153,6 +153,19 @@ body {
   accent-color: var(--accent);
 }
 
+.settings-select-row {
+  justify-content: space-between;
+}
+
+.settings-select {
+  background: var(--pill-bg);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
 .stance-control {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 58px);

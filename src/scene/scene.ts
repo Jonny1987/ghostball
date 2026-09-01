@@ -84,8 +84,9 @@ export class Scene3D {
       new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.5 }),
     )
     stick.visible = false
-    stick.renderOrder = 4 // after the ghost — stays correctly in front of a depth-test-
-    // skipping lateral ghost (v2.8), harmless otherwise
+    // after the ghost — stays correctly in front of a depth-test-skipping
+    // perpendicular-mode ghost; harmless otherwise
+    stick.renderOrder = 4
     this.cueStick = stick
     this.scene.add(stick)
 
@@ -138,11 +139,11 @@ export class Scene3D {
       (state.stance === 'standing' ? state.settings.ghostStanding : state.settings.ghostDown)
     // v2.8: semi-transparent ghost while aiming so an overlapping object ball stays
     // visible; opaque from the reveal on (readability of the amber guess vs the truth).
-    // Opaque + lateral: the ghost interpenetrates O on its line, so it must WIN the
-    // overlap explicitly (depth-test override) to read as "in front".
+    // Opaque + perpendicular: the ghost interpenetrates O on its line, so it must WIN
+    // the overlap explicitly (depth-test override) to read as "in front".
     const glassyGhost = preReveal && state.settings.ghostTransparent
     const ghostOverObject =
-      preReveal && state.settings.lateralMode && !state.settings.ghostTransparent
+      preReveal && state.settings.placement === 'perpendicular' && !state.settings.ghostTransparent
     this.balls.sync(
       state.shot,
       state.ghost,

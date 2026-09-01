@@ -1,6 +1,7 @@
 import {
   clamp,
   clampLateral,
+  clampTouching,
   computeResult,
   cutAngle,
   DEFAULT_TABLE,
@@ -12,6 +13,7 @@ import {
   type LevelId,
   nudgeLateral,
   nudgePos,
+  nudgeTouching,
   radToDeg,
   type Shot,
   spawnTheta,
@@ -21,7 +23,14 @@ import { TopDownView } from './debug/topdown'
 import { Scene3D } from './scene/scene'
 import { buildFeedback } from './ui/feedback'
 import { buildHud, type NudgeDir, updateChip } from './ui/hud'
-import { loadSettings, loadStats, recordAttempt, saveSettings, suggestLevelUp } from './ui/storage'
+import {
+  loadSettings,
+  loadStats,
+  type PlacementMode,
+  recordAttempt,
+  saveSettings,
+  suggestLevelUp,
+} from './ui/storage'
 import { Store } from './ui/store'
 
 // App wiring (PLAN.md §3, v2 placement per docs/decisions.md): store ⇄ scene ⇄ hud; the
@@ -86,11 +95,18 @@ function toast(message: string, actions?: Array<{ label: string; onClick: () => 
 }
 
 // Ghost spawns touching at the jittered straight-through angle (§1): a neutral full-ball
-// starting guess that leaks nothing about the answer; the user moves it freely from there.
-// Lateral mode (v2.8) projects the spawn onto its axis.
-function spawnPos(s: Shot, lateral: boolean): Vec2 {
+// starting guess that leaks nothing about the answer. The spawn already satisfies the
+// 'anywhere' and 'touching' restrictions; 'perpendicular' snaps it onto its line.
+function spawnPos(s: Shot, placement: PlacementMode): Vec2 {
   const p = ghostAt(spawnTheta(s, table), s.object, table.cfg.ballRadiusMm)
-  return lateral ? clampLateral(p, s.cue, s.object, table) : p
+  return placement === 'perpendicular' ? clampLateral(p, s.cue, s.object, table) : p
+}
+
+// Snap a position onto the active placement restriction (used when the mode changes).
+function snapToPlacement(p: Vec2, s: Shot, placement: PlacementMode): Vec2 {
+  if (placement === 'perpendicular') return clampLateral(p, s.cue, s.object, table)
+  if (placement === 'touching') return clampTouching(p, s.cue, s.object, table)
+  return p
 }
 
 function boot(): void {
@@ -115,7 +131,7 @@ function boot(): void {
     phase: 'aiming',
     stance: 'standing',
     shot,
-    ghost: spawnPos(shot, settings.lateralMode),
+    ghost: spawnPos(shot, settings.placement),
     result: null,
     level,
     assisted: false,
@@ -124,6 +140,18 @@ function boot(): void {
     settings,
   })
   updateUrl(shot)
+
+  // Movement dispatched by the active placement restriction (v2.9 dropdown).
+  const nudgeByMode = (s: ReturnType<typeof store.get>, delta: Vec2) => {
+    switch (s.settings.placement) {
+      case 'perpendicular':
+        return nudgeLateral(s.ghost, delta, s.shot.cue, s.shot.object, table)
+      case 'touching':
+        return nudgeTouching(s.ghost, delta, s.shot.cue, s.shot.object, table)
+      default:
+        return nudgePos(s.ghost, delta, s.shot.object, table)
+    }
+  }
 
   // layout: 3D canvas fills the viewport behind the HUD
   const canvasWrap = document.createElement('div')
@@ -142,10 +170,7 @@ function boot(): void {
         x: (dirs.right.x * dxPx - dirs.up.x * dyPx) * SWIPE_MM_PER_PX,
         y: (dirs.right.y * dxPx - dirs.up.y * dyPx) * SWIPE_MM_PER_PX,
       }
-      const moved = s.settings.lateralMode
-        ? nudgeLateral(s.ghost, delta, s.shot.cue, s.shot.object, table)
-        : nudgePos(s.ghost, delta, s.shot.object, table)
-      store.set({ ghost: moved.pos })
+      store.set({ ghost: nudgeByMode(s, delta).pos })
     },
   })
 
@@ -183,7 +208,7 @@ function boot(): void {
         cue: s.shot.cue,
         object: s.shot.object,
         targetPocketId: s.shot.pocketId,
-        lateral: s.settings.lateralMode,
+        lateral: s.settings.placement === 'perpendicular',
       },
       table,
     )
@@ -228,7 +253,7 @@ function boot(): void {
     store.set({
       phase: 'aiming',
       shot: s2,
-      ghost: spawnPos(s2, store.get().settings.lateralMode),
+      ghost: spawnPos(s2, store.get().settings.placement),
       result: null,
       assisted: false,
       peeking: false,
@@ -246,7 +271,7 @@ function boot(): void {
       phase: 'aiming',
       result: null,
       assisted: true,
-      ghost: spawnPos(s.shot, s.settings.lateralMode),
+      ghost: spawnPos(s.shot, s.settings.placement),
     })
   }
 
@@ -288,10 +313,7 @@ function boot(): void {
     onNudge: (dir, stepMm) => {
       const s = store.get()
       if (s.phase !== 'aiming') return false
-      const delta = nudgeDelta(dir, stepMm)
-      const res = s.settings.lateralMode
-        ? nudgeLateral(s.ghost, delta, s.shot.cue, s.shot.object, table)
-        : nudgePos(s.ghost, delta, s.shot.object, table)
+      const res = nudgeByMode(s, nudgeDelta(dir, stepMm))
       store.set({ ghost: res.pos })
       return res.atLimit
     },
@@ -316,10 +338,10 @@ function boot(): void {
       const s = store.get()
       const nextSettings = { ...s.settings, ...patch }
       saveSettings(nextSettings)
-      // turning lateral mode on snaps the current ghost onto its axis (v2.8)
+      // changing the placement restriction snaps the current ghost onto it (v2.9)
       const ghost =
-        patch.lateralMode === true && s.phase === 'aiming'
-          ? clampLateral(s.ghost, s.shot.cue, s.shot.object, table)
+        patch.placement !== undefined && s.phase === 'aiming'
+          ? snapToPlacement(s.ghost, s.shot, nextSettings.placement)
           : s.ghost
       store.set({ settings: nextSettings, ghost })
     },
